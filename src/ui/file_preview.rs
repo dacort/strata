@@ -1,19 +1,16 @@
-//! File preview modal - displays file content with metadata.
+//! File preview pane - displays file content with metadata.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::App;
 use crate::preview::{format_size, PreviewContent, PreviewMode};
 
-/// Render the file preview modal
+/// Render the file preview pane
 pub fn render_file_preview(frame: &mut Frame, app: &App, area: Rect) {
-    // Clear the background
-    frame.render_widget(Clear, area);
-
     let preview = match &app.file_preview {
         Some(p) => p,
         None => return,
@@ -26,11 +23,17 @@ pub fn render_file_preview(frame: &mut Frame, app: &App, area: Rect) {
     };
     let title = format!(" {} [{}] ", preview.name, mode_indicator);
 
-    // Create main block
+    // Create main block with focus-aware border color
+    let border_color = if app.preview_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(Style::default().fg(border_color));
 
     // Split area into header, content, and footer
     let chunks = Layout::default()

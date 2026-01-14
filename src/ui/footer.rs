@@ -66,15 +66,50 @@ fn build_footer_content(app: &App) -> (Vec<Span<'static>>, Vec<Span<'static>>, V
         vec![]
     };
 
-    // Right: keybinding hints
-    let right = vec![
-        Span::styled(" c ", Style::default().fg(Color::Cyan)),
-        Span::styled("context ", Style::default().fg(Color::White)),
-        Span::styled(" ? ", Style::default().fg(Color::Cyan)),
-        Span::styled("help ", Style::default().fg(Color::White)),
-        Span::styled(" q ", Style::default().fg(Color::Cyan)),
-        Span::styled("quit ", Style::default().fg(Color::White)),
-    ];
+    // Right: keybinding hints (context-appropriate)
+    let right = if app.preview_visible && app.preview_focused {
+        // Preview focused: Tab tree  ↑↓ scroll  H head  T tail  E pager  S save  q quit
+        vec![
+            Span::styled(" Tab ", Style::default().fg(Color::Cyan)),
+            Span::styled("tree ", Style::default().fg(Color::White)),
+            Span::styled(" ↑↓ ", Style::default().fg(Color::Cyan)),
+            Span::styled("scroll ", Style::default().fg(Color::White)),
+            Span::styled(" H ", Style::default().fg(Color::Cyan)),
+            Span::styled("head ", Style::default().fg(Color::White)),
+            Span::styled(" T ", Style::default().fg(Color::Cyan)),
+            Span::styled("tail ", Style::default().fg(Color::White)),
+            Span::styled(" E ", Style::default().fg(Color::Cyan)),
+            Span::styled("pager ", Style::default().fg(Color::White)),
+            Span::styled(" S ", Style::default().fg(Color::Cyan)),
+            Span::styled("save ", Style::default().fg(Color::White)),
+            Span::styled(" q ", Style::default().fg(Color::Cyan)),
+            Span::styled("quit ", Style::default().fg(Color::White)),
+        ]
+    } else if app.preview_visible {
+        // Tree + preview: Tab focus  ← → navigate  Esc close  q quit
+        vec![
+            Span::styled(" Tab ", Style::default().fg(Color::Cyan)),
+            Span::styled("focus ", Style::default().fg(Color::White)),
+            Span::styled(" ← → ", Style::default().fg(Color::Cyan)),
+            Span::styled("navigate ", Style::default().fg(Color::White)),
+            Span::styled(" Esc ", Style::default().fg(Color::Cyan)),
+            Span::styled("close ", Style::default().fg(Color::White)),
+            Span::styled(" q ", Style::default().fg(Color::Cyan)),
+            Span::styled("quit ", Style::default().fg(Color::White)),
+        ]
+    } else {
+        // Tree only: ↑↓ navigate  Enter preview  q quit  ? help
+        vec![
+            Span::styled(" ↑↓ ", Style::default().fg(Color::Cyan)),
+            Span::styled("navigate ", Style::default().fg(Color::White)),
+            Span::styled(" Enter ", Style::default().fg(Color::Cyan)),
+            Span::styled("preview ", Style::default().fg(Color::White)),
+            Span::styled(" q ", Style::default().fg(Color::Cyan)),
+            Span::styled("quit ", Style::default().fg(Color::White)),
+            Span::styled(" ? ", Style::default().fg(Color::Cyan)),
+            Span::styled("help ", Style::default().fg(Color::White)),
+        ]
+    };
 
     (left, center, right)
 }

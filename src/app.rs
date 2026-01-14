@@ -91,8 +91,10 @@ pub struct App {
     pub loading_spinner: usize,
     /// Scroll offset for the tree view
     pub scroll_offset: usize,
-    /// File preview modal state
-    pub show_file_preview: bool,
+    /// File preview pane visibility
+    pub preview_visible: bool,
+    /// Whether preview pane has focus (vs tree)
+    pub preview_focused: bool,
     /// Current file preview data
     pub file_preview: Option<FilePreview>,
 }
@@ -115,7 +117,8 @@ impl App {
             selected_provider_id: None,
             loading_spinner: 0,
             scroll_offset: 0,
-            show_file_preview: false,
+            preview_visible: false,
+            preview_focused: false,
             file_preview: None,
         }
     }
@@ -137,7 +140,8 @@ impl App {
             selected_provider_id: None,
             loading_spinner: 0,
             scroll_offset: 0,
-            show_file_preview: false,
+            preview_visible: false,
+            preview_focused: false,
             file_preview: None,
         }
     }
@@ -269,16 +273,30 @@ impl App {
         }
     }
 
-    /// Open file preview modal
+    /// Open file preview pane
     pub fn open_file_preview(&mut self, info: &ObjectInfo) {
         self.file_preview = Some(FilePreview::new(info));
-        self.show_file_preview = true;
+        self.preview_visible = true;
+        self.preview_focused = false; // Tree keeps focus initially
     }
 
-    /// Close file preview modal
+    /// Close file preview pane
     pub fn close_file_preview(&mut self) {
-        self.show_file_preview = false;
+        self.preview_visible = false;
+        self.preview_focused = false;
         self.file_preview = None;
+    }
+
+    /// Focus the preview pane
+    pub fn focus_preview(&mut self) {
+        if self.preview_visible {
+            self.preview_focused = true;
+        }
+    }
+
+    /// Focus the tree pane
+    pub fn focus_tree(&mut self) {
+        self.preview_focused = false;
     }
 
     /// Set preview mode (head/tail) and mark as loading

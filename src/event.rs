@@ -159,12 +159,7 @@ fn handle_resource_selector_key(app: &mut App, key: KeyEvent) -> KeyResult {
 
 /// Handle keys in browse mode
 fn handle_browse_key(app: &mut App, key: KeyEvent) -> KeyResult {
-    // File preview modal captures input (highest priority)
-    if app.show_file_preview {
-        return handle_file_preview_key(app, key);
-    }
-
-    // Context selector modal captures input
+    // Context selector modal captures input (highest priority)
     if app.show_context_selector {
         return handle_context_selector_key(app, key);
     }
@@ -175,9 +170,26 @@ fn handle_browse_key(app: &mut App, key: KeyEvent) -> KeyResult {
         return KeyResult::Handled;
     }
 
+    // Preview pane is visible - route based on focus
+    if app.preview_visible {
+        if app.preview_focused {
+            // Preview has focus
+            return handle_preview_focused_key(app, key);
+        } else {
+            // Tree has focus, but check for preview-related keys
+            return handle_tree_with_preview_key(app, key);
+        }
+    }
+
+    // No preview visible - normal tree navigation
     // Global keybindings
     match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => {
+        KeyCode::Char('q') => {
+            app.quit();
+            return KeyResult::Handled;
+        }
+        // Esc quits when no preview is visible
+        KeyCode::Esc => {
             app.quit();
             return KeyResult::Handled;
         }
@@ -226,12 +238,30 @@ fn handle_context_selector_key(app: &mut App, key: KeyEvent) -> KeyResult {
     }
 }
 
-/// Handle keys in file preview modal
-fn handle_file_preview_key(app: &mut App, key: KeyEvent) -> KeyResult {
+/// Handle keys when preview pane has focus
+fn handle_preview_focused_key(app: &mut App, key: KeyEvent) -> KeyResult {
     match key.code {
-        // Close preview
-        KeyCode::Esc | KeyCode::Char('q') => {
+        // Tab switches focus back to tree
+        KeyCode::Tab => {
+            app.focus_tree();
+            KeyResult::Handled
+        }
+
+        // Esc closes preview entirely (layered "step back")
+        KeyCode::Esc => {
             app.close_file_preview();
+            KeyResult::Handled
+        }
+
+        // 'q' quits the application
+        KeyCode::Char('q') => {
+            app.quit();
+            KeyResult::Handled
+        }
+
+        // 'h' or Left arrow return focus to tree
+        KeyCode::Char('h') | KeyCode::Left => {
+            app.focus_tree();
             KeyResult::Handled
         }
 
@@ -245,7 +275,7 @@ fn handle_file_preview_key(app: &mut App, key: KeyEvent) -> KeyResult {
         }
 
         // Switch to head mode
-        KeyCode::Char('H') | KeyCode::Char('h') => {
+        KeyCode::Char('H') => {
             if let Some(ref preview) = app.file_preview {
                 let key = preview.key.clone();
                 let size = preview.size.unwrap_or(PREVIEW_BYTES);
@@ -258,7 +288,7 @@ fn handle_file_preview_key(app: &mut App, key: KeyEvent) -> KeyResult {
         }
 
         // Switch to tail mode
-        KeyCode::Char('T') | KeyCode::Char('t') => {
+        KeyCode::Char('T') => {
             if let Some(ref preview) = app.file_preview {
                 if let Some(size) = preview.size {
                     let key = preview.key.clone();
@@ -274,7 +304,7 @@ fn handle_file_preview_key(app: &mut App, key: KeyEvent) -> KeyResult {
         }
 
         // Save to local
-        KeyCode::Char('S') | KeyCode::Char('s') => {
+        KeyCode::Char('S') => {
             if let Some(ref preview) = app.file_preview {
                 let remote_key = preview.key.clone();
                 // Use filename portion as local filename
@@ -285,13 +315,13 @@ fn handle_file_preview_key(app: &mut App, key: KeyEvent) -> KeyResult {
             }
         }
 
-        // Scroll up
+        // Scroll up (arrow keys mirror vim keys)
         KeyCode::Up | KeyCode::Char('k') => {
             app.preview_scroll_up();
             KeyResult::Handled
         }
 
-        // Scroll down
+        // Scroll down (arrow keys mirror vim keys)
         KeyCode::Down | KeyCode::Char('j') => {
             // TODO: Get actual visible height from UI
             app.preview_scroll_down(20);
@@ -314,9 +344,50 @@ fn handle_file_preview_key(app: &mut App, key: KeyEvent) -> KeyResult {
     }
 }
 
+/// Handle keys when tree has focus but preview is visible
+fn handle_tree_with_preview_key(app: &mut App, key: KeyEvent) -> KeyResult {
+    match key.code {
+        // Tab moves focus to preview
+        KeyCode::Tab => {
+            app.focus_preview();
+            KeyResult::Handled
+        }
+
+        // 'q' quits the application
+        KeyCode::Char('q') => {
+            app.quit();
+            KeyResult::Handled
+        }
+
+        // Esc closes preview pane (layered "step back")
+        KeyCode::Esc => {
+            app.close_file_preview();
+            KeyResult::Handled
+        }
+
+        // Global keybindings
+        KeyCode::Char('?') => {
+            app.toggle_help();
+            KeyResult::Handled
+        }
+        KeyCode::Char('c') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.open_context_selector();
+            KeyResult::LoadContexts
+        }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.quit();
+            KeyResult::Handled
+        }
+
+        // Tree navigation (j/k and arrow keys work normally)
+        // Note: We need to handle 'l' and Right specially for files
+        _ => handle_tree_key(app, key),
+    }
+}
+
 fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
     match key.code {
-        // Navigation
+        // Navigation (arrow keys mirror vim keys exactly)
         KeyCode::Up | KeyCode::Char('k') => {
             app.tree.select_prev();
             KeyResult::Handled
@@ -363,7 +434,7 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyResult::Handled
         }
 
-        // Left arrow: collapse current or go to parent
+        // Left arrow / h: collapse current or go to parent
         KeyCode::Left | KeyCode::Char('h') => {
             if let Some(key) = app.tree.selected_key().cloned() {
                 if app.tree.is_expanded(&key) {
@@ -382,17 +453,26 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyResult::Handled
         }
 
-        // Right arrow: expand or enter
+        // Right arrow / l: expand directory, or focus preview if on file and preview visible
         KeyCode::Right | KeyCode::Char('l') => {
             if let Some(key) = app.tree.selected_key().cloned() {
                 if let Some(node) = app.tree.nodes.get(&key) {
-                    if node.is_dir && !app.tree.is_expanded(&key) {
-                        app.tree.toggle_expanded(&key);
+                    if node.is_dir {
+                        // Directory: expand if collapsed
+                        if !app.tree.is_expanded(&key) {
+                            app.tree.toggle_expanded(&key);
 
-                        if app.tree.needs_children(&key) {
-                            app.tree.set_loading(&key, true);
-                            return KeyResult::LoadChildren(key);
+                            if app.tree.needs_children(&key) {
+                                app.tree.set_loading(&key, true);
+                                return KeyResult::LoadChildren(key);
+                            }
                         }
+                    } else {
+                        // File: if preview is visible, focus it
+                        if app.preview_visible {
+                            app.focus_preview();
+                        }
+                        // Otherwise do nothing (Enter opens preview)
                     }
                 }
             }
