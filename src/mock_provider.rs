@@ -1,6 +1,6 @@
 //! Mock provider for testing and demos.
 
-use crate::provider::{ListResult, ObjectInfo, Provider};
+use crate::provider::{ContextInfo, ListResult, ObjectInfo, Provider};
 
 /// Mock provider that returns fake data for testing
 #[derive(Clone)]
@@ -78,6 +78,28 @@ impl Provider for MockProvider {
 
     async fn get_range(&self, _key: &str, _start: u64, _end: u64) -> anyhow::Result<Vec<u8>> {
         Ok(b"Mock file content\nLine 2\nLine 3\n".to_vec())
+    }
+
+    async fn list_contexts(&self) -> anyhow::Result<Vec<ContextInfo>> {
+        // Return some fake bucket names for testing
+        Ok(vec![
+            ContextInfo {
+                name: "demo-bucket".to_string(),
+                description: Some("Demo bucket for testing".to_string()),
+            },
+            ContextInfo {
+                name: "my-data-bucket".to_string(),
+                description: Some("Sample data storage".to_string()),
+            },
+            ContextInfo {
+                name: "production-logs".to_string(),
+                description: None,
+            },
+            ContextInfo {
+                name: "ml-training-artifacts".to_string(),
+                description: Some("Machine learning models and datasets".to_string()),
+            },
+        ])
     }
 
     fn name(&self) -> &str {

@@ -125,6 +125,13 @@ pub struct ListResult {
     pub is_truncated: bool,
 }
 
+/// Information about a context (bucket, project, dataset, etc.)
+#[derive(Debug, Clone)]
+pub struct ContextInfo {
+    pub name: String,
+    pub description: Option<String>,
+}
+
 /// Provider context - configured backend + auth + root namespace
 #[derive(Debug, Clone)]
 pub struct ProviderContext {
@@ -161,6 +168,9 @@ pub trait Provider: Send + Sync + 'static {
 
     /// Download a range of bytes from an object
     fn get_range(&self, key: &str, start: u64, end: u64) -> impl std::future::Future<Output = anyhow::Result<Vec<u8>>> + Send;
+
+    /// List available contexts (buckets, projects, datasets, etc.)
+    fn list_contexts(&self) -> impl std::future::Future<Output = anyhow::Result<Vec<ContextInfo>>> + Send;
 
     /// Provider name for display
     fn name(&self) -> &str;

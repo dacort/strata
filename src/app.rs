@@ -1,20 +1,26 @@
 //! Application state and core logic.
 //!
 //! The app maintains:
-//! - Navigation stack (for back/forward)
-//! - Current listing state
-//! - Focus management
+//! - Tree state for hierarchical browsing
 //! - Status messages
+//! - UI state (help overlay, etc.)
 
 use std::time::{Duration, Instant};
 
-use crate::provider::{ObjectInfo, ProviderContext};
+use crate::preview::{FilePreview, PreviewMode};
+use crate::provider::{ContextInfo, ObjectInfo, ProviderContext};
+use crate::registry::ProviderInfo;
+use crate::tree::TreeState;
 
-/// Which pane currently has focus
+/// Application mode - determines what UI is shown
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Focus {
-    Navigator,
-    Preview,
+pub enum AppMode {
+    /// Selecting a provider (step 1)
+    SelectProvider,
+    /// Selecting a resource (bucket, dataset, etc.) (step 2)
+    SelectResource,
+    /// Normal tree browsing
+    Browse,
 }
 
 /// Status message severity
@@ -42,14 +48,6 @@ impl StatusMessage {
         }
     }
 
-    pub fn warn(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            level: StatusLevel::Warn,
-            expires_at: Some(Instant::now() + Duration::from_secs(10)),
-        }
-    }
-
     pub fn error(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -63,129 +61,107 @@ impl StatusMessage {
     }
 }
 
-/// Entry in navigation stack - allows back/forward
-#[derive(Debug, Clone)]
-pub struct NavEntry {
-    pub prefix: String,
-    pub selected_index: usize,
-    pub scroll_offset: usize,
-}
-
-/// Current listing state
-#[derive(Debug, Default)]
-pub struct ListingState {
-    pub objects: Vec<ObjectInfo>,
-    pub selected_index: usize,
-    pub scroll_offset: usize,
-    pub is_loading: bool,
-    pub continuation_token: Option<String>,
-    pub has_more: bool,
-}
-
-impl ListingState {
-    pub fn selected(&self) -> Option<&ObjectInfo> {
-        self.objects.get(self.selected_index)
-    }
-
-    pub fn select_next(&mut self) {
-        if !self.objects.is_empty() {
-            self.selected_index = (self.selected_index + 1).min(self.objects.len() - 1);
-        }
-    }
-
-    pub fn select_prev(&mut self) {
-        self.selected_index = self.selected_index.saturating_sub(1);
-    }
-
-    pub fn select_first(&mut self) {
-        self.selected_index = 0;
-    }
-
-    pub fn select_last(&mut self) {
-        if !self.objects.is_empty() {
-            self.selected_index = self.objects.len() - 1;
-        }
-    }
-}
-
 /// Main application state
 pub struct App {
-    /// Current context (bucket, prefix, etc.)
-    pub context: ProviderContext,
-    /// Navigation history for back/forward
-    pub nav_stack: Vec<NavEntry>,
-    /// Current position in nav_stack (-1 means at head)
-    pub nav_index: isize,
-    /// Current listing state
-    pub listing: ListingState,
-    /// Which pane has focus
-    pub focus: Focus,
+    /// Current application mode
+    pub mode: AppMode,
+    /// Current context (bucket, prefix, etc.) - None when selecting provider
+    pub context: Option<ProviderContext>,
+    /// Tree state for browsing
+    pub tree: TreeState,
     /// Status bar messages
     pub status: Option<StatusMessage>,
     /// Whether app should quit
     pub should_quit: bool,
     /// Show help overlay
     pub show_help: bool,
-    /// Preview content for selected object
-    pub preview_content: Option<String>,
+    /// Show context selector modal (deprecated - use mode instead)
+    pub show_context_selector: bool,
+    /// Available contexts (buckets, projects, etc.)
+    pub contexts: Vec<ContextInfo>,
+    /// Selected index in context selector
+    pub context_selector_index: usize,
+    /// Available providers
+    pub providers: Vec<ProviderInfo>,
+    /// Selected index in provider selector
+    pub provider_selector_index: usize,
+    /// Selected provider ID (when in SelectResource mode)
+    pub selected_provider_id: Option<String>,
     /// Loading indicator state
     pub loading_spinner: usize,
+    /// Scroll offset for the tree view
+    pub scroll_offset: usize,
+    /// File preview modal state
+    pub show_file_preview: bool,
+    /// Current file preview data
+    pub file_preview: Option<FilePreview>,
 }
 
 impl App {
+    /// Create app in Browse mode with a known context
     pub fn new(context: ProviderContext) -> Self {
         Self {
-            context,
-            nav_stack: Vec::new(),
-            nav_index: -1,
-            listing: ListingState::default(),
-            focus: Focus::Navigator,
+            mode: AppMode::Browse,
+            context: Some(context),
+            tree: TreeState::new(),
             status: None,
             should_quit: false,
             show_help: false,
-            preview_content: None,
+            show_context_selector: false,
+            contexts: Vec::new(),
+            context_selector_index: 0,
+            providers: Vec::new(),
+            provider_selector_index: 0,
+            selected_provider_id: None,
             loading_spinner: 0,
+            scroll_offset: 0,
+            show_file_preview: false,
+            file_preview: None,
         }
     }
 
-    /// Push current state to nav stack and navigate to new prefix
-    pub fn navigate_to(&mut self, prefix: String) {
-        // Save current state
-        if !self.listing.objects.is_empty() {
-            let entry = NavEntry {
-                prefix: self.context.current_prefix.clone(),
-                selected_index: self.listing.selected_index,
-                scroll_offset: self.listing.scroll_offset,
-            };
-
-            // Truncate forward history if we're not at the end
-            if self.nav_index >= 0 {
-                self.nav_stack.truncate(self.nav_index as usize + 1);
-            }
-            self.nav_stack.push(entry);
-            self.nav_index = self.nav_stack.len() as isize - 1;
+    /// Create app in SelectProvider mode
+    pub fn new_with_provider_selector(providers: Vec<ProviderInfo>) -> Self {
+        Self {
+            mode: AppMode::SelectProvider,
+            context: None,
+            tree: TreeState::new(),
+            status: None,
+            should_quit: false,
+            show_help: false,
+            show_context_selector: false,
+            contexts: Vec::new(),
+            context_selector_index: 0,
+            providers,
+            provider_selector_index: 0,
+            selected_provider_id: None,
+            loading_spinner: 0,
+            scroll_offset: 0,
+            show_file_preview: false,
+            file_preview: None,
         }
-
-        // Navigate to new prefix
-        self.context.current_prefix = prefix;
-        self.listing = ListingState::default();
-        self.listing.is_loading = true;
-        self.preview_content = None;
     }
 
-    /// Go back in navigation history
-    pub fn navigate_back(&mut self) -> bool {
-        if self.nav_index >= 0 {
-            let entry = &self.nav_stack[self.nav_index as usize];
-            self.context.current_prefix = entry.prefix.clone();
-            self.listing.selected_index = entry.selected_index;
-            self.listing.scroll_offset = entry.scroll_offset;
-            self.nav_index -= 1;
-            self.listing.is_loading = true;
-            true
-        } else {
-            false
-        }
+    /// Transition to SelectResource mode with a chosen provider
+    pub fn enter_resource_selector(&mut self, provider_id: String) {
+        self.mode = AppMode::SelectResource;
+        self.selected_provider_id = Some(provider_id);
+        self.context_selector_index = 0;
+        self.contexts.clear();
+    }
+
+    /// Transition to Browse mode with a chosen context
+    pub fn enter_browse_mode(&mut self, context: ProviderContext) {
+        self.mode = AppMode::Browse;
+        self.context = Some(context);
+        self.tree = TreeState::new();
+    }
+
+    /// Go back to provider selector
+    pub fn back_to_provider_selector(&mut self) {
+        self.mode = AppMode::SelectProvider;
+        self.selected_provider_id = None;
+        self.contexts.clear();
     }
 
     /// Set a status message
@@ -207,6 +183,57 @@ impl App {
         self.show_help = !self.show_help;
     }
 
+    /// Open context selector
+    pub fn open_context_selector(&mut self) {
+        self.show_context_selector = true;
+        self.context_selector_index = 0;
+    }
+
+    /// Close context selector
+    pub fn close_context_selector(&mut self) {
+        self.show_context_selector = false;
+    }
+
+    /// Select previous context
+    pub fn context_selector_prev(&mut self) {
+        if !self.contexts.is_empty() {
+            self.context_selector_index = self.context_selector_index.saturating_sub(1);
+        }
+    }
+
+    /// Select next context
+    pub fn context_selector_next(&mut self) {
+        if !self.contexts.is_empty() {
+            self.context_selector_index =
+                (self.context_selector_index + 1).min(self.contexts.len() - 1);
+        }
+    }
+
+    /// Get currently selected context name
+    pub fn selected_context_name(&self) -> Option<String> {
+        self.contexts.get(self.context_selector_index).map(|c| c.name.clone())
+    }
+
+    /// Select previous provider
+    pub fn provider_selector_prev(&mut self) {
+        if !self.providers.is_empty() {
+            self.provider_selector_index = self.provider_selector_index.saturating_sub(1);
+        }
+    }
+
+    /// Select next provider
+    pub fn provider_selector_next(&mut self) {
+        if !self.providers.is_empty() {
+            self.provider_selector_index =
+                (self.provider_selector_index + 1).min(self.providers.len() - 1);
+        }
+    }
+
+    /// Get currently selected provider
+    pub fn selected_provider(&self) -> Option<&ProviderInfo> {
+        self.providers.get(self.provider_selector_index)
+    }
+
     /// Quit the application
     pub fn quit(&mut self) {
         self.should_quit = true;
@@ -221,5 +248,72 @@ impl App {
     pub fn spinner_char(&self) -> char {
         const SPINNER: [char; 8] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
         SPINNER[self.loading_spinner]
+    }
+
+    /// Ensure selected item is visible by adjusting scroll
+    pub fn ensure_visible(&mut self, visible_height: usize) {
+        if visible_height == 0 {
+            return;
+        }
+
+        let selected = self.tree.selected_index;
+
+        // Scroll up if selection is above viewport
+        if selected < self.scroll_offset {
+            self.scroll_offset = selected;
+        }
+
+        // Scroll down if selection is below viewport
+        if selected >= self.scroll_offset + visible_height {
+            self.scroll_offset = selected - visible_height + 1;
+        }
+    }
+
+    /// Open file preview modal
+    pub fn open_file_preview(&mut self, info: &ObjectInfo) {
+        self.file_preview = Some(FilePreview::new(info));
+        self.show_file_preview = true;
+    }
+
+    /// Close file preview modal
+    pub fn close_file_preview(&mut self) {
+        self.show_file_preview = false;
+        self.file_preview = None;
+    }
+
+    /// Set preview mode (head/tail) and mark as loading
+    pub fn set_preview_mode(&mut self, mode: PreviewMode) {
+        if let Some(ref mut preview) = self.file_preview {
+            preview.mode = mode;
+            preview.set_loading();
+        }
+    }
+
+    /// Scroll preview up
+    pub fn preview_scroll_up(&mut self) {
+        if let Some(ref mut preview) = self.file_preview {
+            preview.scroll_up();
+        }
+    }
+
+    /// Scroll preview down
+    pub fn preview_scroll_down(&mut self, visible_height: usize) {
+        if let Some(ref mut preview) = self.file_preview {
+            preview.scroll_down(visible_height);
+        }
+    }
+
+    /// Page up in preview
+    pub fn preview_page_up(&mut self, visible_height: usize) {
+        if let Some(ref mut preview) = self.file_preview {
+            preview.page_up(visible_height);
+        }
+    }
+
+    /// Page down in preview
+    pub fn preview_page_down(&mut self, visible_height: usize) {
+        if let Some(ref mut preview) = self.file_preview {
+            preview.page_down(visible_height);
+        }
     }
 }

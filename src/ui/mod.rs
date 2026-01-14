@@ -1,53 +1,67 @@
 //! UI components and rendering.
 
-mod navigator;
-mod preview;
+mod tree_view;
 mod footer;
 mod help;
+mod context_selector;
+mod provider_selector;
+mod file_preview;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-use crate::app::App;
+use crate::app::{App, AppMode};
 
-pub use navigator::render_navigator;
-pub use preview::render_preview;
+pub use tree_view::render_tree;
 pub use footer::render_footer;
 pub use help::render_help;
+pub use context_selector::render_context_selector;
+pub use provider_selector::render_provider_selector;
+pub use file_preview::render_file_preview;
 
-/// Main UI layout - Navigator | Preview | Footer
-pub fn render(frame: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(5),      // Main content area
-            Constraint::Length(1),   // Footer/status bar
-        ])
-        .split(frame.area());
+/// Main UI layout - Full-width tree view with footer
+pub fn render(frame: &mut Frame, app: &mut App) {
+    match app.mode {
+        AppMode::SelectProvider => {
+            // Show provider selector modal centered on screen
+            render_provider_selector(frame, app, centered_rect(60, 50, frame.area()));
+        }
+        AppMode::SelectResource => {
+            // Show resource selector (context selector) modal centered on screen
+            render_context_selector(frame, app, centered_rect(60, 50, frame.area()));
+        }
+        AppMode::Browse => {
+            // Normal browsing mode - tree view with footer
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(3),      // Tree view
+                    Constraint::Length(1),   // Footer/status bar
+                ])
+                .split(frame.area());
 
-    let main_area = chunks[0];
-    let footer_area = chunks[1];
+            let tree_area = chunks[0];
+            let footer_area = chunks[1];
 
-    // Split main area into Navigator and Preview panes
-    let panes = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(40), // Navigator
-            Constraint::Percentage(60), // Preview
-        ])
-        .split(main_area);
+            // Render tree view (full width)
+            render_tree(frame, app, tree_area);
+            render_footer(frame, app, footer_area);
 
-    let navigator_area = panes[0];
-    let preview_area = panes[1];
+            // Render file preview if active (highest priority modal)
+            if app.show_file_preview {
+                render_file_preview(frame, app, centered_rect(80, 80, frame.area()));
+            }
 
-    // Render each component
-    render_navigator(frame, app, navigator_area);
-    render_preview(frame, app, preview_area);
-    render_footer(frame, app, footer_area);
+            // Render help overlay if active
+            if app.show_help {
+                render_help(frame, centered_rect(60, 70, frame.area()));
+            }
 
-    // Render help overlay if active
-    if app.show_help {
-        render_help(frame, centered_rect(60, 70, frame.area()));
+            // Render context selector if active (backwards compatibility)
+            if app.show_context_selector {
+                render_context_selector(frame, app, centered_rect(60, 50, frame.area()));
+            }
+        }
     }
 }
 

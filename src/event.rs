@@ -5,8 +5,9 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 
-use crate::app::{App, Focus, StatusMessage};
-use crate::provider::ObjectType;
+use crate::app::{App, AppMode};
+use crate::preview::{PreviewMode, PREVIEW_BYTES};
+use crate::provider::ObjectInfo;
 
 /// Application events
 #[derive(Debug)]
@@ -15,10 +16,52 @@ pub enum AppEvent {
     Key(KeyEvent),
     /// Tick for animations/timeouts
     Tick,
-    /// Listing loaded
-    ListingLoaded(Vec<crate::provider::ObjectInfo>, Option<String>, bool),
-    /// Listing error
-    ListingError(String),
+    /// Root listing loaded
+    RootLoaded(Vec<ObjectInfo>, bool),
+    /// Children loaded for a prefix
+    ChildrenLoaded {
+        parent_key: String,
+        objects: Vec<ObjectInfo>,
+        has_more: bool,
+    },
+    /// Contexts loaded
+    ContextsLoaded(Vec<crate::provider::ContextInfo>),
+    /// Loading error
+    LoadError(String, String), // (prefix, error message)
+    /// File preview content loaded
+    PreviewLoaded {
+        key: String,
+        content: Vec<u8>,
+        mode: PreviewMode,
+    },
+    /// Pager process exited
+    PagerExited,
+}
+
+/// Result of handling a key event
+pub enum KeyResult {
+    /// Nothing happened
+    None,
+    /// Event was handled, no action needed
+    Handled,
+    /// Need to load children for this prefix
+    LoadChildren(String),
+    /// Need to refresh/reload root
+    Refresh,
+    /// Need to load contexts
+    LoadContexts,
+    /// Switch to a new context
+    SwitchContext(String),
+    /// Provider selected, need to initialize and load resources
+    ProviderSelected(String),
+    /// Fetch head of file for preview (key, bytes to fetch)
+    FetchPreviewHead(String, u64),
+    /// Fetch tail of file for preview (key, file_size, bytes to fetch)
+    FetchPreviewTail(String, u64, u64),
+    /// Open file in external pager
+    OpenInPager(String),
+    /// Save file to local path (remote_key, local_path)
+    SaveToLocal(String, String),
 }
 
 /// Spawn a task to read keyboard events
@@ -42,112 +85,325 @@ pub fn spawn_event_reader(tx: mpsc::Sender<AppEvent>) {
     });
 }
 
-/// Handle a key event, returning true if the event was consumed
-pub fn handle_key(app: &mut App, key: KeyEvent) -> bool {
+/// Handle a key event
+pub fn handle_key(app: &mut App, key: KeyEvent) -> KeyResult {
+    // Route to appropriate handler based on mode
+    match app.mode {
+        AppMode::SelectProvider => handle_provider_selector_key(app, key),
+        AppMode::SelectResource => handle_resource_selector_key(app, key),
+        AppMode::Browse => handle_browse_key(app, key),
+    }
+}
+
+/// Handle keys in provider selector mode
+fn handle_provider_selector_key(app: &mut App, key: KeyEvent) -> KeyResult {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.quit();
+            KeyResult::Handled
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.provider_selector_prev();
+            KeyResult::Handled
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.provider_selector_next();
+            KeyResult::Handled
+        }
+        KeyCode::Enter => {
+            if let Some(provider) = app.selected_provider() {
+                if provider.enabled {
+                    KeyResult::ProviderSelected(provider.id.to_string())
+                } else {
+                    // Provider not yet available
+                    KeyResult::Handled
+                }
+            } else {
+                KeyResult::Handled
+            }
+        }
+        _ => KeyResult::Handled,
+    }
+}
+
+/// Handle keys in resource selector mode
+fn handle_resource_selector_key(app: &mut App, key: KeyEvent) -> KeyResult {
+    match key.code {
+        KeyCode::Esc => {
+            // Go back to provider selector
+            app.back_to_provider_selector();
+            KeyResult::Handled
+        }
+        KeyCode::Char('q') => {
+            app.quit();
+            KeyResult::Handled
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.context_selector_prev();
+            KeyResult::Handled
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.context_selector_next();
+            KeyResult::Handled
+        }
+        KeyCode::Enter => {
+            if let Some(context_name) = app.selected_context_name() {
+                KeyResult::SwitchContext(context_name)
+            } else {
+                KeyResult::Handled
+            }
+        }
+        _ => KeyResult::Handled,
+    }
+}
+
+/// Handle keys in browse mode
+fn handle_browse_key(app: &mut App, key: KeyEvent) -> KeyResult {
+    // File preview modal captures input (highest priority)
+    if app.show_file_preview {
+        return handle_file_preview_key(app, key);
+    }
+
+    // Context selector modal captures input
+    if app.show_context_selector {
+        return handle_context_selector_key(app, key);
+    }
+
     // Help overlay captures all input
     if app.show_help {
         app.show_help = false;
-        return true;
+        return KeyResult::Handled;
     }
 
     // Global keybindings
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.quit();
-            return true;
+            return KeyResult::Handled;
         }
         KeyCode::Char('?') => {
             app.toggle_help();
-            return true;
+            return KeyResult::Handled;
+        }
+        KeyCode::Char('c') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.open_context_selector();
+            return KeyResult::LoadContexts;
         }
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.quit();
-            return true;
-        }
-        KeyCode::Tab => {
-            app.focus = match app.focus {
-                Focus::Navigator => Focus::Preview,
-                Focus::Preview => Focus::Navigator,
-            };
-            return true;
+            return KeyResult::Handled;
         }
         _ => {}
     }
 
-    // Focus-specific handling
-    match app.focus {
-        Focus::Navigator => handle_navigator_key(app, key),
-        Focus::Preview => handle_preview_key(app, key),
-    }
+    // Tree navigation
+    handle_tree_key(app, key)
 }
 
-fn handle_navigator_key(app: &mut App, key: KeyEvent) -> bool {
+fn handle_context_selector_key(app: &mut App, key: KeyEvent) -> KeyResult {
     match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.close_context_selector();
+            KeyResult::Handled
+        }
         KeyCode::Up | KeyCode::Char('k') => {
-            app.listing.select_prev();
-            true
+            app.context_selector_prev();
+            KeyResult::Handled
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            app.listing.select_next();
-            true
-        }
-        KeyCode::Char('g') => {
-            app.listing.select_first();
-            true
-        }
-        KeyCode::Char('G') => {
-            app.listing.select_last();
-            true
+            app.context_selector_next();
+            KeyResult::Handled
         }
         KeyCode::Enter => {
-            if let Some(obj) = app.listing.selected().cloned() {
-                match obj.object_type {
-                    ObjectType::Prefix => {
-                        app.navigate_to(obj.key.clone());
-                        app.set_status(StatusMessage::info(format!("Navigating to {}", obj.name)));
-                    }
-                    _ => {
-                        app.set_status(StatusMessage::info(format!("Opening {}", obj.name)));
-                        // TODO: Open preview/inspector based on type
-                    }
-                }
+            if let Some(context_name) = app.selected_context_name() {
+                app.close_context_selector();
+                KeyResult::SwitchContext(context_name)
+            } else {
+                KeyResult::Handled
             }
-            true
         }
-        KeyCode::Backspace => {
-            if app.navigate_back() {
-                app.set_status(StatusMessage::info("Navigating back"));
-            } else if !app.context.current_prefix.is_empty() {
-                // Go up one level
-                let parts: Vec<&str> = app.context.current_prefix.trim_end_matches('/').split('/').collect();
-                if parts.len() > 1 {
-                    let parent = parts[..parts.len() - 1].join("/") + "/";
-                    app.navigate_to(parent);
-                } else {
-                    app.navigate_to(String::new());
-                }
-            }
-            true
-        }
-        KeyCode::Char('r') => {
-            app.listing.is_loading = true;
-            app.set_status(StatusMessage::info("Refreshing..."));
-            true
-        }
-        _ => false,
+        _ => KeyResult::Handled,
     }
 }
 
-fn handle_preview_key(app: &mut App, key: KeyEvent) -> bool {
+/// Handle keys in file preview modal
+fn handle_file_preview_key(app: &mut App, key: KeyEvent) -> KeyResult {
     match key.code {
+        // Close preview
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.close_file_preview();
+            KeyResult::Handled
+        }
+
+        // Open in pager
+        KeyCode::Char('E') | KeyCode::Char('e') => {
+            if let Some(ref preview) = app.file_preview {
+                KeyResult::OpenInPager(preview.key.clone())
+            } else {
+                KeyResult::Handled
+            }
+        }
+
+        // Switch to head mode
+        KeyCode::Char('H') | KeyCode::Char('h') => {
+            if let Some(ref preview) = app.file_preview {
+                let key = preview.key.clone();
+                let size = preview.size.unwrap_or(PREVIEW_BYTES);
+                let fetch_bytes = PREVIEW_BYTES.min(size);
+                app.set_preview_mode(PreviewMode::Head);
+                KeyResult::FetchPreviewHead(key, fetch_bytes)
+            } else {
+                KeyResult::Handled
+            }
+        }
+
+        // Switch to tail mode
+        KeyCode::Char('T') | KeyCode::Char('t') => {
+            if let Some(ref preview) = app.file_preview {
+                if let Some(size) = preview.size {
+                    let key = preview.key.clone();
+                    let fetch_bytes = PREVIEW_BYTES.min(size);
+                    app.set_preview_mode(PreviewMode::Tail);
+                    KeyResult::FetchPreviewTail(key, size, fetch_bytes)
+                } else {
+                    KeyResult::Handled
+                }
+            } else {
+                KeyResult::Handled
+            }
+        }
+
+        // Save to local
+        KeyCode::Char('S') | KeyCode::Char('s') => {
+            if let Some(ref preview) = app.file_preview {
+                let remote_key = preview.key.clone();
+                // Use filename portion as local filename
+                let filename = preview.name.clone();
+                KeyResult::SaveToLocal(remote_key, filename)
+            } else {
+                KeyResult::Handled
+            }
+        }
+
+        // Scroll up
         KeyCode::Up | KeyCode::Char('k') => {
-            // TODO: Scroll preview up
-            true
+            app.preview_scroll_up();
+            KeyResult::Handled
+        }
+
+        // Scroll down
+        KeyCode::Down | KeyCode::Char('j') => {
+            // TODO: Get actual visible height from UI
+            app.preview_scroll_down(20);
+            KeyResult::Handled
+        }
+
+        // Page up
+        KeyCode::PageUp | KeyCode::Char('b') => {
+            app.preview_page_up(20);
+            KeyResult::Handled
+        }
+
+        // Page down
+        KeyCode::PageDown | KeyCode::Char('f') => {
+            app.preview_page_down(20);
+            KeyResult::Handled
+        }
+
+        _ => KeyResult::Handled,
+    }
+}
+
+fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
+    match key.code {
+        // Navigation
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.tree.select_prev();
+            KeyResult::Handled
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            // TODO: Scroll preview down
-            true
+            app.tree.select_next();
+            KeyResult::Handled
         }
-        _ => false,
+        KeyCode::Char('g') => {
+            app.tree.select_first();
+            KeyResult::Handled
+        }
+        KeyCode::Char('G') => {
+            app.tree.select_last();
+            KeyResult::Handled
+        }
+
+        // Enter: expand/collapse directories, open files
+        KeyCode::Enter => {
+            if let Some(key) = app.tree.selected_key().cloned() {
+                // Clone info we need before mutable operations
+                let node_info = app.tree.nodes.get(&key).map(|n| (n.is_dir, n.info.clone()));
+
+                if let Some((is_dir, info)) = node_info {
+                    if is_dir {
+                        // Toggle expansion
+                        let was_expanded = app.tree.is_expanded(&key);
+                        app.tree.toggle_expanded(&key);
+
+                        // If now expanded and children not loaded, trigger load
+                        if !was_expanded && app.tree.needs_children(&key) {
+                            app.tree.set_loading(&key, true);
+                            return KeyResult::LoadChildren(key);
+                        }
+                    } else {
+                        // File selected - open preview modal
+                        let size = info.size.unwrap_or(PREVIEW_BYTES);
+                        let fetch_bytes = PREVIEW_BYTES.min(size);
+                        app.open_file_preview(&info);
+                        return KeyResult::FetchPreviewHead(key, fetch_bytes);
+                    }
+                }
+            }
+            KeyResult::Handled
+        }
+
+        // Left arrow: collapse current or go to parent
+        KeyCode::Left | KeyCode::Char('h') => {
+            if let Some(key) = app.tree.selected_key().cloned() {
+                if app.tree.is_expanded(&key) {
+                    // Collapse this node
+                    app.tree.toggle_expanded(&key);
+                } else if let Some(node) = app.tree.nodes.get(&key) {
+                    // Move to parent
+                    if !node.parent_key.is_empty() {
+                        // Find parent's index in visible list
+                        if let Some(idx) = app.tree.visible.iter().position(|k| k == &node.parent_key) {
+                            app.tree.selected_index = idx;
+                        }
+                    }
+                }
+            }
+            KeyResult::Handled
+        }
+
+        // Right arrow: expand or enter
+        KeyCode::Right | KeyCode::Char('l') => {
+            if let Some(key) = app.tree.selected_key().cloned() {
+                if let Some(node) = app.tree.nodes.get(&key) {
+                    if node.is_dir && !app.tree.is_expanded(&key) {
+                        app.tree.toggle_expanded(&key);
+
+                        if app.tree.needs_children(&key) {
+                            app.tree.set_loading(&key, true);
+                            return KeyResult::LoadChildren(key);
+                        }
+                    }
+                }
+            }
+            KeyResult::Handled
+        }
+
+        // Refresh
+        KeyCode::Char('r') => {
+            KeyResult::Refresh
+        }
+
+        _ => KeyResult::None,
     }
 }
