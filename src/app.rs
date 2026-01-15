@@ -190,7 +190,16 @@ impl App {
     /// Open context selector
     pub fn open_context_selector(&mut self) {
         self.show_context_selector = true;
-        self.context_selector_index = 0;
+        // Set the selector index to the currently active context if one exists
+        if let Some(ref ctx) = self.context {
+            self.context_selector_index = self
+                .contexts
+                .iter()
+                .position(|c| c.name == ctx.root)
+                .unwrap_or(0);
+        } else {
+            self.context_selector_index = 0;
+        }
     }
 
     /// Close context selector

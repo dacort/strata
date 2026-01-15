@@ -64,8 +64,33 @@ pub fn render_context_selector(frame: &mut Frame, app: &App, area: Rect) {
     ]));
     lines.push(Line::from(""));
 
-    // Add context items
-    for (idx, context) in app.contexts.iter().enumerate() {
+    // Calculate how many items can fit in the visible area
+    // Account for: 2 borders + header lines (4) + footer lines (3)
+    let header_lines = 4u16;
+    let footer_lines = 3u16;
+    let chrome_height = 2 + header_lines + footer_lines; // borders + header + footer
+    let available_height = area.height.saturating_sub(chrome_height) as usize;
+    
+    // Calculate scroll offset to keep selected item visible
+    let total_items = app.contexts.len();
+    let scroll_offset = if available_height > 0 && total_items > available_height {
+        // Keep the selected item visible with some context
+        let selected = app.context_selector_index;
+        if selected < available_height / 2 {
+            0
+        } else if selected >= total_items.saturating_sub(available_height / 2) {
+            total_items.saturating_sub(available_height)
+        } else {
+            selected.saturating_sub(available_height / 2)
+        }
+    } else {
+        0
+    };
+
+    // Add context items (only the visible window)
+    let end_idx = (scroll_offset + available_height).min(total_items);
+    for idx in scroll_offset..end_idx {
+        let context = &app.contexts[idx];
         let is_selected = idx == app.context_selector_index;
         let prefix = if is_selected { "> " } else { "  " };
 
