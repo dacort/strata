@@ -35,33 +35,29 @@ pub fn render_context_selector(frame: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
 
-    let mut lines = vec![
-        Line::from(""),
-    ];
+    let mut lines = vec![Line::from("")];
 
     // Only show header if not in browse mode
     if app.mode == crate::app::AppMode::SelectResource {
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("  {}", header),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            ),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!("  {}", header),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]));
     } else if let Some(ref context) = app.context {
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("  {} Buckets", context.provider_name.to_uppercase()),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            ),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!("  {} Buckets", context.provider_name.to_uppercase()),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]));
     }
 
-    lines.push(Line::from(vec![
-        Span::styled(
-            "  ─────────────────────────────────────────────",
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        "  ─────────────────────────────────────────────",
+        Style::default().fg(Color::DarkGray),
+    )]));
     lines.push(Line::from(""));
 
     // Calculate how many items can fit in the visible area
@@ -70,7 +66,7 @@ pub fn render_context_selector(frame: &mut Frame, app: &App, area: Rect) {
     let footer_lines = 3u16;
     let chrome_height = 2 + header_lines + footer_lines; // borders + header + footer
     let available_height = area.height.saturating_sub(chrome_height) as usize;
-    
+
     // Calculate scroll offset to keep selected item visible
     let total_items = app.contexts.len();
     let scroll_offset = if available_height > 0 && total_items > available_height {
@@ -95,7 +91,9 @@ pub fn render_context_selector(frame: &mut Frame, app: &App, area: Rect) {
         let prefix = if is_selected { "> " } else { "  " };
 
         let name_style = if is_selected {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };

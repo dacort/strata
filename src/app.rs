@@ -224,7 +224,9 @@ impl App {
 
     /// Get currently selected context name
     pub fn selected_context_name(&self) -> Option<String> {
-        self.contexts.get(self.context_selector_index).map(|c| c.name.clone())
+        self.contexts
+            .get(self.context_selector_index)
+            .map(|c| c.name.clone())
     }
 
     /// Select previous provider
