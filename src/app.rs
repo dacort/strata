@@ -278,8 +278,10 @@ impl App {
         }
 
         // Scroll down if selection is below viewport
-        if selected >= self.scroll_offset + visible_height {
-            self.scroll_offset = selected - visible_height + 1;
+        // Use a buffer of 2 to account for "load more" hint rows that may be inserted
+        let effective_height = visible_height.saturating_sub(2);
+        if effective_height > 0 && selected >= self.scroll_offset + effective_height {
+            self.scroll_offset = selected - effective_height + 1;
         }
     }
 

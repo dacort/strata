@@ -397,6 +397,104 @@ impl TreeState {
 
         prefix
     }
+
+    /// Navigate to next sibling directory (skip over children and files)
+    /// If no sibling at current level, go to parent's next sibling, etc.
+    /// Returns true if navigation happened, false if no next directory found
+    pub fn select_next_sibling(&mut self) -> bool {
+        let Some(current_key) = self.selected_key().cloned() else {
+            return false;
+        };
+        let Some(current_node) = self.nodes.get(&current_key) else {
+            return false;
+        };
+
+        let current_depth = current_node.depth;
+
+        // Look for the next directory at the same depth or shallower
+        // This naturally handles: next sibling, or parent's next sibling, etc.
+        for (idx, key) in self.visible.iter().enumerate().skip(self.selected_index + 1) {
+            if let Some(node) = self.nodes.get(key) {
+                // Found a directory at same level or higher (shallower) = that's our target
+                if node.is_dir && node.depth <= current_depth {
+                    self.selected_index = idx;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Navigate to previous sibling directory
+    /// If no sibling at current level, go to parent directory
+    /// Returns true if navigation happened, false if no previous directory found
+    pub fn select_prev_sibling(&mut self) -> bool {
+        let Some(current_key) = self.selected_key().cloned() else {
+            return false;
+        };
+        let Some(current_node) = self.nodes.get(&current_key) else {
+            return false;
+        };
+
+        let current_depth = current_node.depth;
+
+        // Look backwards for a directory at the same depth or shallower
+        for idx in (0..self.selected_index).rev() {
+            if let Some(key) = self.visible.get(idx) {
+                if let Some(node) = self.nodes.get(key) {
+                    // Found a directory at same level or higher = that's our target
+                    if node.is_dir && node.depth <= current_depth {
+                        self.selected_index = idx;
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if the current selection is at the "load more" boundary.
+    /// Returns Some(parent_key) if we're at the last loaded item of a parent that has more children.
+    pub fn at_load_more_boundary(&self) -> Option<String> {
+        let current_key = self.selected_key()?;
+        let current_node = self.nodes.get(current_key)?;
+        let parent_key = &current_node.parent_key;
+
+        if parent_key.is_empty() {
+            // At root level - TODO: handle root pagination later
+            return None;
+        }
+
+        let parent_node = self.nodes.get(parent_key)?;
+
+        // Check if parent has more children and we're at the last visible descendant
+        if !parent_node.has_more_children || parent_node.continuation_token.is_none() {
+            return None;
+        }
+
+        // Check if next visible node is NOT a descendant of our parent
+        let next_idx = self.selected_index + 1;
+        if next_idx < self.visible.len() {
+            let next_key = &self.visible[next_idx];
+            // If next node starts with parent_key, it's still a descendant
+            if next_key.starts_with(parent_key) {
+                return None;
+            }
+        }
+
+        // We're at the boundary!
+        Some(parent_key.clone())
+    }
+
+    /// Cancel loading for a specific prefix
+    pub fn cancel_loading(&mut self, key: &str) {
+        self.loading.remove(key);
+    }
+
+    /// Cancel all loading operations
+    pub fn cancel_all_loading(&mut self) {
+        self.loading.clear();
+    }
 }
 
 #[cfg(test)]

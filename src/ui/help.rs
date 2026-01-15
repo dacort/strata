@@ -29,6 +29,8 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         keybinding_line("Enter", "Expand dir / preview file"),
         keybinding_line("→/l", "Expand directory"),
         keybinding_line("←/h", "Collapse or go to parent"),
+        keybinding_line("]", "Next sibling (skip children)"),
+        keybinding_line("[", "Previous sibling"),
         keybinding_line("g", "Go to first item"),
         keybinding_line("G", "Go to last item"),
         Line::from(""),
@@ -53,7 +55,6 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         )]),
         Line::from(""),
         keybinding_line("r", "Refresh tree"),
-        keybinding_line("L", "Load more items (truncated)"),
         keybinding_line("c", "Switch context (bucket/resource)"),
         Line::from(""),
         Line::from(vec![Span::styled(
@@ -64,7 +65,8 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         )]),
         Line::from(""),
         keybinding_line("?", "Toggle this help"),
-        keybinding_line("q/Esc", "Quit"),
+        keybinding_line("Esc", "Cancel loading / Quit"),
+        keybinding_line("q", "Quit"),
         Line::from(""),
         Line::from(vec![Span::styled(
             "  Press any key to close",

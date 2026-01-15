@@ -233,7 +233,9 @@ fn add_load_more_hints(
             && let Some(parent_node) = app.tree.nodes.get(current_parent)
             && parent_node.has_more_children
         {
-            let hint = create_load_more_hint(parent_node.depth + 1, parent_node.child_count);
+            let is_loading = app.tree.is_loading(current_parent);
+            let spinner = app.spinner_char();
+            let hint = create_load_more_hint(parent_node.depth + 1, parent_node.child_count, is_loading, spinner);
             result.push(hint);
         }
     }
@@ -241,7 +243,7 @@ fn add_load_more_hints(
     result
 }
 
-fn create_load_more_hint(depth: usize, child_count: Option<usize>) -> ListItem<'static> {
+fn create_load_more_hint(depth: usize, child_count: Option<usize>, is_loading: bool, spinner: char) -> ListItem<'static> {
     // Create indentation matching the tree depth
     let tree_prefix = if depth > 0 {
         format!("{}   ", "   ".repeat(depth - 1))
@@ -249,15 +251,17 @@ fn create_load_more_hint(depth: usize, child_count: Option<usize>) -> ListItem<'
         String::new()
     };
 
-    let count_text = if let Some(count) = child_count {
-        format!("... {} shown, more available (L to load)", count)
+    let count_text = if is_loading {
+        let count_info = child_count.map(|c| format!(" ({} loaded)", c)).unwrap_or_default();
+        format!("{}└─ {} loading more...", tree_prefix, spinner) + &count_info
+    } else if let Some(count) = child_count {
+        format!("{}└─ ⋯ {} shown, more available", tree_prefix, count)
     } else {
-        "... more available (L to load)".to_string()
+        format!("{}└─ ⋯ more available", tree_prefix)
     };
 
-    let text = format!("{}{}", tree_prefix, count_text);
     ListItem::new(Line::from(Span::styled(
-        text,
+        count_text,
         Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::ITALIC),

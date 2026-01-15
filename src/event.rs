@@ -197,8 +197,12 @@ fn handle_browse_key(app: &mut App, key: KeyEvent) -> KeyResult {
             app.quit();
             return KeyResult::Handled;
         }
-        // Esc quits when no preview is visible
+        // Esc: cancel loading if active, otherwise quit
         KeyCode::Esc => {
+            if app.tree.any_loading() {
+                app.tree.cancel_all_loading();
+                return KeyResult::Handled;
+            }
             app.quit();
             return KeyResult::Handled;
         }
@@ -402,7 +406,27 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
             KeyResult::Handled
         }
         KeyCode::Down | KeyCode::Char('j') => {
+            // Check if we're at a loading boundary
+            if let Some(parent_key) = app.tree.at_load_more_boundary() {
+                if app.tree.is_loading(&parent_key) {
+                    // Already loading, stay put until load completes
+                    return KeyResult::Handled;
+                }
+                // Not loading yet, trigger load but stay on current item
+                app.tree.set_loading(&parent_key, true);
+                return KeyResult::LoadMore(parent_key);
+            }
+            // Normal navigation
             app.tree.select_next();
+            KeyResult::Handled
+        }
+        // Sibling navigation: ] = next sibling, [ = previous sibling
+        KeyCode::Char(']') => {
+            app.tree.select_next_sibling();
+            KeyResult::Handled
+        }
+        KeyCode::Char('[') => {
+            app.tree.select_prev_sibling();
             KeyResult::Handled
         }
         KeyCode::Char('g') => {
@@ -447,7 +471,8 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
         KeyCode::Left | KeyCode::Char('h') => {
             if let Some(key) = app.tree.selected_key().cloned() {
                 if app.tree.is_expanded(&key) {
-                    // Collapse this node
+                    // Collapse this node and cancel any pending load
+                    app.tree.cancel_loading(&key);
                     app.tree.toggle_expanded(&key);
                 } else if let Some(node) = app.tree.nodes.get(&key) {
                     // Move to parent
@@ -492,7 +517,7 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
         // Refresh
         KeyCode::Char('r') => KeyResult::Refresh,
 
-        // Load more items (for truncated listings)
+        // Manual load more items (for truncated listings)
         KeyCode::Char('L') => {
             if let Some(key) = app.tree.selected_key()
                 && let Some(node) = app.tree.nodes.get(key) {
@@ -504,12 +529,15 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
                         node.parent_key.clone()
                     };
 
-                    // Check if parent has more children
+                    // Check if parent has more children and not already loading
                     if let Some(parent_node) = app.tree.nodes.get(&parent_key)
-                        && parent_node.has_more_children && parent_node.continuation_token.is_some()
-                        {
-                            return KeyResult::LoadMore(parent_key);
-                        }
+                        && parent_node.has_more_children 
+                        && parent_node.continuation_token.is_some()
+                        && !app.tree.is_loading(&parent_key)
+                    {
+                        app.tree.set_loading(&parent_key, true);
+                        return KeyResult::LoadMore(parent_key);
+                    }
                 }
             KeyResult::Handled
         }
