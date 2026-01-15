@@ -17,7 +17,9 @@ pub fn render_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     app.ensure_visible(visible_height);
 
     // Build title with bucket name and loading indicator
-    let mut title = app.context.as_ref()
+    let mut title = app
+        .context
+        .as_ref()
         .map(|c| c.display_path())
         .unwrap_or_else(|| "No Context".to_string());
     if app.tree.any_loading() {
@@ -77,7 +79,9 @@ pub fn render_tree(frame: &mut Frame, app: &mut App, area: Rect) {
 
             // Name - directories in blue, files in white
             let name_style = if node.is_dir {
-                Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
@@ -111,9 +115,21 @@ pub fn render_tree(frame: &mut Frame, app: &mut App, area: Rect) {
 
             // Calculate padding needed to right-align size and timestamp
             let metadata_len = if !size_str.is_empty() || !timestamp_str.is_empty() {
-                let size_len = if !size_str.is_empty() { SIZE_COL_WIDTH } else { 0 };
-                let timestamp_len = if !timestamp_str.is_empty() { TIMESTAMP_COL_WIDTH } else { 0 };
-                let spacing = if !size_str.is_empty() && !timestamp_str.is_empty() { MIN_SPACING } else { 0 };
+                let size_len = if !size_str.is_empty() {
+                    SIZE_COL_WIDTH
+                } else {
+                    0
+                };
+                let timestamp_len = if !timestamp_str.is_empty() {
+                    TIMESTAMP_COL_WIDTH
+                } else {
+                    0
+                };
+                let spacing = if !size_str.is_empty() && !timestamp_str.is_empty() {
+                    MIN_SPACING
+                } else {
+                    0
+                };
                 size_len + spacing + timestamp_len + MIN_SPACING
             } else {
                 0
@@ -159,7 +175,9 @@ pub fn render_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     let items = if items.is_empty() && !app.tree.any_loading() {
         vec![ListItem::new(Line::from(vec![Span::styled(
             "  (empty)",
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
         )]))]
     } else {
         // Check if we need to add "load more" hints for expanded directories
@@ -198,25 +216,25 @@ fn add_load_more_hints(
         let current_node = &visible_nodes[visible_idx];
         let current_parent = &current_node.1.parent_key;
 
-        // Check if the next node in the full list has a different parent
-        // This indicates we've reached the end of the current directory's children
-        let is_last_child_in_parent = if visible_idx + 1 < visible_nodes.len() {
-            let next_node = &visible_nodes[visible_idx + 1];
-            let next_parent = &next_node.1.parent_key;
-            current_parent != next_parent
+        // Check if the next node is still a descendant of the current parent
+        // We only want to show "load more" after ALL descendants of the parent are shown
+        let is_last_descendant_of_parent = if visible_idx + 1 < visible_nodes.len() {
+            let next_key = &visible_nodes[visible_idx + 1].0;
+            // Next node is NOT a descendant if its key doesn't start with the parent prefix
+            !next_key.starts_with(current_parent.as_str())
         } else {
             // Last item overall
             true
         };
 
-        // If this is the last child and parent has more children, add hint
-        if is_last_child_in_parent && !current_parent.is_empty() {
-            if let Some(parent_node) = app.tree.nodes.get(current_parent) {
-                if parent_node.has_more_children {
-                    let hint = create_load_more_hint(parent_node.depth + 1, parent_node.child_count);
-                    result.push(hint);
-                }
-            }
+        // If this is the last descendant and parent has more children, add hint
+        if is_last_descendant_of_parent
+            && !current_parent.is_empty()
+            && let Some(parent_node) = app.tree.nodes.get(current_parent)
+            && parent_node.has_more_children
+        {
+            let hint = create_load_more_hint(parent_node.depth + 1, parent_node.child_count);
+            result.push(hint);
         }
     }
 

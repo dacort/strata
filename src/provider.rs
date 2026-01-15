@@ -145,7 +145,10 @@ impl ProviderContext {
         if self.current_prefix.is_empty() {
             format!("{}://{}", self.provider_name, self.root)
         } else {
-            format!("{}://{}/{}", self.provider_name, self.root, self.current_prefix)
+            format!(
+                "{}://{}/{}",
+                self.provider_name, self.root, self.current_prefix
+            )
         }
     }
 }
@@ -164,13 +167,23 @@ pub trait Provider: Send + Sync + 'static {
     ) -> impl std::future::Future<Output = anyhow::Result<ListResult>> + Send;
 
     /// Get object metadata without downloading content
-    fn head(&self, key: &str) -> impl std::future::Future<Output = anyhow::Result<ObjectInfo>> + Send;
+    fn head(
+        &self,
+        key: &str,
+    ) -> impl std::future::Future<Output = anyhow::Result<ObjectInfo>> + Send;
 
     /// Download a range of bytes from an object
-    fn get_range(&self, key: &str, start: u64, end: u64) -> impl std::future::Future<Output = anyhow::Result<Vec<u8>>> + Send;
+    fn get_range(
+        &self,
+        key: &str,
+        start: u64,
+        end: u64,
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<u8>>> + Send;
 
     /// List available contexts (buckets, projects, datasets, etc.)
-    fn list_contexts(&self) -> impl std::future::Future<Output = anyhow::Result<Vec<ContextInfo>>> + Send;
+    fn list_contexts(
+        &self,
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<ContextInfo>>> + Send;
 
     /// Provider name for display
     fn name(&self) -> &str;

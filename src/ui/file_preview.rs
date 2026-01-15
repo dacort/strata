@@ -1,13 +1,13 @@
 //! File preview pane - displays file content with metadata.
 
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::app::App;
-use crate::preview::{format_size, PreviewContent, PreviewMode};
+use crate::preview::{PreviewContent, PreviewMode, format_size};
 
 /// Render the file preview pane
 pub fn render_file_preview(frame: &mut Frame, app: &App, area: Rect) {
@@ -218,9 +218,7 @@ fn render_error(frame: &mut Frame, err: &str, area: Rect) {
         Line::from(""),
         Line::from(vec![Span::styled(
             "  Error loading preview:",
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
         Line::from(vec![Span::styled(
@@ -248,9 +246,12 @@ fn render_footer(frame: &mut Frame, preview: &crate::preview::FilePreview, area:
 
     // Always show pager and save
     spans.push(Span::styled("[E]", Style::default().fg(Color::Cyan)));
-    spans.push(Span::styled("dit/pager ", Style::default().fg(Color::White)));
+    spans.push(Span::styled(
+        "dit/pager ",
+        Style::default().fg(Color::White),
+    ));
     spans.push(Span::styled("[S]", Style::default().fg(Color::Cyan)));
-        spans.push(Span::styled("ave ", Style::default().fg(Color::White)));
+    spans.push(Span::styled("ave ", Style::default().fg(Color::White)));
     spans.push(Span::styled("[Esc]", Style::default().fg(Color::Cyan)));
     spans.push(Span::styled(" close", Style::default().fg(Color::White)));
 

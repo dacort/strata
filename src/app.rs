@@ -57,7 +57,7 @@ impl StatusMessage {
     }
 
     pub fn is_expired(&self) -> bool {
-        self.expires_at.map_or(false, |t| Instant::now() > t)
+        self.expires_at.is_some_and(|t| Instant::now() > t)
     }
 }
 
@@ -175,11 +175,10 @@ impl App {
 
     /// Clear expired status messages
     pub fn clear_expired_status(&mut self) {
-        if let Some(ref status) = self.status {
-            if status.is_expired() {
+        if let Some(ref status) = self.status
+            && status.is_expired() {
                 self.status = None;
             }
-        }
     }
 
     /// Toggle help overlay

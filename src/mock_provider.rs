@@ -37,9 +37,21 @@ impl Provider for MockProvider {
                     // First page - 3 items
                     Ok(ListResult {
                         objects: vec![
-                            ObjectInfo::object("2024-01-01.json", "data/raw/2024-01-01.json", 1024 * 100),
-                            ObjectInfo::object("2024-01-02.json", "data/raw/2024-01-02.json", 1024 * 150),
-                            ObjectInfo::object("2024-01-03.json", "data/raw/2024-01-03.json", 1024 * 120),
+                            ObjectInfo::object(
+                                "2024-01-01.json",
+                                "data/raw/2024-01-01.json",
+                                1024 * 100,
+                            ),
+                            ObjectInfo::object(
+                                "2024-01-02.json",
+                                "data/raw/2024-01-02.json",
+                                1024 * 150,
+                            ),
+                            ObjectInfo::object(
+                                "2024-01-03.json",
+                                "data/raw/2024-01-03.json",
+                                1024 * 120,
+                            ),
                         ],
                         continuation_token: Some("1".to_string()),
                         is_truncated: true,
@@ -49,9 +61,21 @@ impl Provider for MockProvider {
                     // Second page - 3 more items
                     Ok(ListResult {
                         objects: vec![
-                            ObjectInfo::object("2024-01-04.json", "data/raw/2024-01-04.json", 1024 * 130),
-                            ObjectInfo::object("2024-01-05.json", "data/raw/2024-01-05.json", 1024 * 140),
-                            ObjectInfo::object("2024-01-06.json", "data/raw/2024-01-06.json", 1024 * 110),
+                            ObjectInfo::object(
+                                "2024-01-04.json",
+                                "data/raw/2024-01-04.json",
+                                1024 * 130,
+                            ),
+                            ObjectInfo::object(
+                                "2024-01-05.json",
+                                "data/raw/2024-01-05.json",
+                                1024 * 140,
+                            ),
+                            ObjectInfo::object(
+                                "2024-01-06.json",
+                                "data/raw/2024-01-06.json",
+                                1024 * 110,
+                            ),
                         ],
                         continuation_token: Some("2".to_string()),
                         is_truncated: true,
@@ -61,8 +85,16 @@ impl Provider for MockProvider {
                     // Third page - final 2 items
                     Ok(ListResult {
                         objects: vec![
-                            ObjectInfo::object("2024-01-07.json", "data/raw/2024-01-07.json", 1024 * 125),
-                            ObjectInfo::object("2024-01-08.json", "data/raw/2024-01-08.json", 1024 * 135),
+                            ObjectInfo::object(
+                                "2024-01-07.json",
+                                "data/raw/2024-01-07.json",
+                                1024 * 125,
+                            ),
+                            ObjectInfo::object(
+                                "2024-01-08.json",
+                                "data/raw/2024-01-08.json",
+                                1024 * 135,
+                            ),
                         ],
                         continuation_token: None,
                         is_truncated: false,
@@ -99,7 +131,11 @@ impl Provider for MockProvider {
                 ObjectInfo::prefix("raw/", "data/raw/"),
                 ObjectInfo::prefix("processed/", "data/processed/"),
                 ObjectInfo::object("users.parquet", "data/users.parquet", 1024 * 1024 * 150),
-                ObjectInfo::object("events.parquet", "data/events.parquet", 1024 * 1024 * 1024 * 2),
+                ObjectInfo::object(
+                    "events.parquet",
+                    "data/events.parquet",
+                    1024 * 1024 * 1024 * 2,
+                ),
                 ObjectInfo::object("backup.tar.gz", "data/backup.tar.gz", 1024 * 1024 * 500),
             ]
         } else if prefix == "models/" {

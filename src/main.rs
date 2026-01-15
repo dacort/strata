@@ -17,17 +17,17 @@ use std::io::{self, stdout};
 
 use crossterm::{
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::prelude::*;
 use tokio::sync::mpsc;
 
 use app::{App, StatusMessage};
-use event::{spawn_event_reader, AppEvent, KeyResult};
+use event::{AppEvent, KeyResult, spawn_event_reader};
 use mock_provider::MockProvider;
 use preview::PreviewMode;
 use provider::{Provider, ProviderContext};
-use registry::{get_available_providers, parse_uri, ParsedUri};
+use registry::{ParsedUri, get_available_providers, parse_uri};
 use s3_provider::S3Provider;
 
 #[tokio::main]
@@ -82,9 +82,7 @@ async fn run_app_with_uri(
     uri_str: String,
 ) -> anyhow::Result<()> {
     match parse_uri(&uri_str) {
-        Some(ParsedUri::S3 { bucket }) => {
-            run_app_with_s3(terminal, bucket).await
-        }
+        Some(ParsedUri::S3 { bucket }) => run_app_with_s3(terminal, bucket).await,
         Some(ParsedUri::HuggingFace { .. }) => {
             anyhow::bail!("HuggingFace provider not yet implemented")
         }
@@ -131,8 +129,8 @@ async fn run_app_with_selector(
                         }
                         KeyResult::SwitchContext(resource_name) => {
                             // User selected a resource, transition to browse mode
-                            if let Some(provider_id) = &app.selected_provider_id {
-                                if provider_id == "s3" {
+                            if let Some(provider_id) = &app.selected_provider_id
+                                && provider_id == "s3" {
                                     // Initialize S3 provider and switch to browse mode
                                     match S3Provider::new(&resource_name).await {
                                         Ok(provider) => {
@@ -145,24 +143,28 @@ async fn run_app_with_selector(
 
                                             // Initial root load
                                             app.tree.set_loading("", true);
-                                            spawn_list_task(provider, String::new(), None, tx.clone());
+                                            spawn_list_task(
+                                                provider,
+                                                String::new(),
+                                                None,
+                                                tx.clone(),
+                                            );
                                         }
                                         Err(e) => {
-                                            app.set_status(StatusMessage::error(
-                                                format!("Failed to connect to S3: {}", e)
-                                            ));
+                                            app.set_status(StatusMessage::error(format!(
+                                                "Failed to connect to S3: {}",
+                                                e
+                                            )));
                                         }
                                     }
                                 }
-                            }
                         }
                         KeyResult::LoadContexts => {
                             // In browse mode, reload contexts
-                            if let Some(context) = &app.context {
-                                if context.provider_name == "s3" {
+                            if let Some(context) = &app.context
+                                && context.provider_name == "s3" {
                                     spawn_s3_contexts_task(tx.clone());
                                 }
-                            }
                         }
                         _ => {}
                     }
@@ -185,8 +187,8 @@ async fn run_app_with_selector(
         }
 
         // If we transitioned to browse mode with a provider, hand off to provider-specific loop
-        if matches!(app.mode, app::AppMode::Browse) {
-            if let Some(context) = app.context.clone() {
+        if matches!(app.mode, app::AppMode::Browse)
+            && let Some(context) = app.context.clone() {
                 if context.provider_name == "s3" {
                     // Get provider - need to recreate it
                     if let Ok(provider) = S3Provider::new(&context.root).await {
@@ -197,7 +199,6 @@ async fn run_app_with_selector(
                     return run_app_loop(terminal, provider, app, tx, rx).await;
                 }
             }
-        }
     }
 
     Ok(())
@@ -230,7 +231,9 @@ async fn run_app_with_s3(
     run_app_loop(terminal, provider, app, tx, rx).await
 }
 
-async fn run_app_with_mock(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()> {
+async fn run_app_with_mock(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> anyhow::Result<()> {
     // Create mock provider
     let provider = MockProvider::new();
     let context = ProviderContext {
@@ -261,7 +264,6 @@ async fn run_app_loop<P: Provider + Clone>(
     tx: mpsc::Sender<AppEvent>,
     mut rx: mpsc::Receiver<AppEvent>,
 ) -> anyhow::Result<()> {
-
     // Main loop
     loop {
         // Clear expired status messages
@@ -297,8 +299,8 @@ async fn run_app_loop<P: Provider + Clone>(
                             // This is a bit of a hack, but it works for now
                             if let Some(ref context) = app.context {
                                 if context.provider_name == "s3" {
-                                    // Switch bucket for S3
-                                    provider = switch_s3_bucket(provider, &new_context);
+                                    // Switch bucket for S3 (async to detect bucket region)
+                                    provider = switch_s3_bucket(provider, &new_context).await;
                                 }
                                 // Update context and reload
                                 let mut new_context_obj = context.clone();
@@ -338,11 +340,7 @@ async fn run_app_loop<P: Provider + Clone>(
                         }
                         KeyResult::OpenInPager(key) => {
                             // Suspend TUI and open pager
-                            if let Err(e) = open_in_pager(
-                                &provider,
-                                &key,
-                                terminal,
-                            ).await {
+                            if let Err(e) = open_in_pager(&provider, &key, terminal).await {
                                 app.set_status(StatusMessage::error(format!("Pager error: {}", e)));
                             }
                             app.close_file_preview();
@@ -380,13 +378,25 @@ async fn run_app_loop<P: Provider + Clone>(
                     app.tree.set_loading("", false);
                     app.tree.set_root(objects, has_more);
                 }
-                AppEvent::ChildrenLoaded { parent_key, objects, has_more, continuation_token } => {
+                AppEvent::ChildrenLoaded {
+                    parent_key,
+                    objects,
+                    has_more,
+                    continuation_token,
+                } => {
                     app.tree.set_loading(&parent_key, false);
-                    app.tree.set_children(&parent_key, objects, has_more, continuation_token);
+                    app.tree
+                        .set_children(&parent_key, objects, has_more, continuation_token);
                 }
-                AppEvent::MoreChildrenLoaded { parent_key, objects, has_more, continuation_token } => {
+                AppEvent::MoreChildrenLoaded {
+                    parent_key,
+                    objects,
+                    has_more,
+                    continuation_token,
+                } => {
                     app.tree.set_loading(&parent_key, false);
-                    app.tree.append_children(&parent_key, objects, has_more, continuation_token);
+                    app.tree
+                        .append_children(&parent_key, objects, has_more, continuation_token);
                 }
                 AppEvent::LoadError(prefix, err) => {
                     app.tree.set_loading(&prefix, false);
@@ -396,11 +406,10 @@ async fn run_app_loop<P: Provider + Clone>(
                     app.contexts = contexts;
                 }
                 AppEvent::PreviewLoaded { key, content, mode } => {
-                    if let Some(ref mut preview) = app.file_preview {
-                        if preview.key == key {
+                    if let Some(ref mut preview) = app.file_preview
+                        && preview.key == key {
                             preview.update_content(content, mode);
                         }
-                    }
                 }
                 AppEvent::PagerExited => {
                     // TUI already restored, nothing to do
@@ -419,21 +428,28 @@ async fn run_app_loop<P: Provider + Clone>(
 // Helper function to switch S3 bucket
 // For S3, we use the with_bucket method. For other providers, this is a no-op.
 // This works via trait specialization pattern using std::any::Any
-fn switch_s3_bucket<P: Provider + Clone + 'static>(provider: P, new_bucket: &str) -> P {
+async fn switch_s3_bucket<P: Provider + Clone + 'static>(provider: P, new_bucket: &str) -> P {
     use std::any::Any;
 
     // Try to downcast to S3Provider
     let provider_any: &dyn Any = &provider;
     if let Some(s3_provider) = provider_any.downcast_ref::<S3Provider>() {
         // We have an S3Provider, create a new one with the new bucket
-        let new_s3 = s3_provider.with_bucket(new_bucket);
-
-        // Convert S3Provider back to P
-        // This is safe because when we successfully downcast &provider to &S3Provider,
-        // it means P is S3Provider at the call site
-        let boxed: Box<dyn Any> = Box::new(new_s3);
-        if let Ok(result) = boxed.downcast::<P>() {
-            return *result;
+        // This is async because it needs to detect the bucket's region
+        match s3_provider.with_bucket(new_bucket).await {
+            Ok(new_s3) => {
+                // Convert S3Provider back to P
+                // This is safe because when we successfully downcast &provider to &S3Provider,
+                // it means P is S3Provider at the call site
+                let boxed: Box<dyn Any> = Box::new(new_s3);
+                if let Ok(result) = boxed.downcast::<P>() {
+                    return *result;
+                }
+            }
+            Err(e) => {
+                // Log error but continue with original provider
+                eprintln!("Failed to switch bucket: {}", e);
+            }
         }
     }
 
@@ -477,14 +493,19 @@ fn spawn_load_more_task<P: Provider + Clone>(
     tx: mpsc::Sender<AppEvent>,
 ) {
     tokio::spawn(async move {
-        match provider.list(&prefix, Some(&continuation_token), 1000).await {
+        match provider
+            .list(&prefix, Some(&continuation_token), 1000)
+            .await
+        {
             Ok(result) => {
-                let _ = tx.send(AppEvent::MoreChildrenLoaded {
-                    parent_key,
-                    objects: result.objects,
-                    has_more: result.is_truncated,
-                    continuation_token: result.continuation_token,
-                }).await;
+                let _ = tx
+                    .send(AppEvent::MoreChildrenLoaded {
+                        parent_key,
+                        objects: result.objects,
+                        has_more: result.is_truncated,
+                        continuation_token: result.continuation_token,
+                    })
+                    .await;
             }
             Err(e) => {
                 let _ = tx.send(AppEvent::LoadError(prefix, e.to_string())).await;
@@ -493,20 +514,19 @@ fn spawn_load_more_task<P: Provider + Clone>(
     });
 }
 
-fn spawn_contexts_task<P: Provider + Clone>(
-    provider: P,
-    tx: mpsc::Sender<AppEvent>,
-) {
+fn spawn_contexts_task<P: Provider + Clone>(provider: P, tx: mpsc::Sender<AppEvent>) {
     tokio::spawn(async move {
         match provider.list_contexts().await {
             Ok(contexts) => {
                 let _ = tx.send(AppEvent::ContextsLoaded(contexts)).await;
             }
             Err(e) => {
-                let _ = tx.send(AppEvent::LoadError(
-                    "contexts".to_string(),
-                    format!("Failed to load contexts: {}", e),
-                )).await;
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        "contexts".to_string(),
+                        format!("Failed to load contexts: {}", e),
+                    ))
+                    .await;
             }
         }
     });
@@ -516,24 +536,26 @@ fn spawn_s3_contexts_task(tx: mpsc::Sender<AppEvent>) {
     tokio::spawn(async move {
         // Create a temporary S3 provider just to list buckets
         match S3Provider::new("temp").await {
-            Ok(provider) => {
-                match provider.list_contexts().await {
-                    Ok(contexts) => {
-                        let _ = tx.send(AppEvent::ContextsLoaded(contexts)).await;
-                    }
-                    Err(e) => {
-                        let _ = tx.send(AppEvent::LoadError(
+            Ok(provider) => match provider.list_contexts().await {
+                Ok(contexts) => {
+                    let _ = tx.send(AppEvent::ContextsLoaded(contexts)).await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(AppEvent::LoadError(
                             "contexts".to_string(),
                             format!("Failed to load S3 buckets: {}", e),
-                        )).await;
-                    }
+                        ))
+                        .await;
                 }
-            }
+            },
             Err(e) => {
-                let _ = tx.send(AppEvent::LoadError(
-                    "contexts".to_string(),
-                    format!("Failed to initialize S3 client: {}", e),
-                )).await;
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        "contexts".to_string(),
+                        format!("Failed to initialize S3 client: {}", e),
+                    ))
+                    .await;
             }
         }
     });
@@ -667,10 +689,7 @@ fn spawn_download_task<P: Provider + Clone>(
                 Ok(chunk) => {
                     if let Err(e) = file.write_all(&chunk).await {
                         let _ = tx
-                            .send(AppEvent::LoadError(
-                                key,
-                                format!("Failed to write: {}", e),
-                            ))
+                            .send(AppEvent::LoadError(key, format!("Failed to write: {}", e)))
                             .await;
                         return;
                     }
@@ -678,10 +697,7 @@ fn spawn_download_task<P: Provider + Clone>(
                 }
                 Err(e) => {
                     let _ = tx
-                        .send(AppEvent::LoadError(
-                            key,
-                            format!("Download error: {}", e),
-                        ))
+                        .send(AppEvent::LoadError(key, format!("Download error: {}", e)))
                         .await;
                     return;
                 }

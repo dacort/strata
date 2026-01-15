@@ -19,18 +19,14 @@ pub fn render_provider_selector(frame: &mut Frame, app: &App, area: Rect) {
 
     let mut lines = vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                "  Choose a data provider to explore:",
-                Style::default().fg(Color::White),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                "  ─────────────────────────────────────────────",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]),
+        Line::from(vec![Span::styled(
+            "  Choose a data provider to explore:",
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(vec![Span::styled(
+            "  ─────────────────────────────────────────────",
+            Style::default().fg(Color::DarkGray),
+        )]),
         Line::from(""),
     ];
 
@@ -41,16 +37,18 @@ pub fn render_provider_selector(frame: &mut Frame, app: &App, area: Rect) {
 
         let name_style = if is_selected {
             if provider.enabled {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
             }
+        } else if provider.enabled {
+            Style::default().fg(Color::White)
         } else {
-            if provider.enabled {
-                Style::default().fg(Color::White)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            }
+            Style::default().fg(Color::DarkGray)
         };
 
         let mut spans = vec![

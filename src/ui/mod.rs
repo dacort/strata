@@ -1,23 +1,23 @@
 //! UI components and rendering.
 
-mod tree_view;
+mod context_selector;
+mod file_preview;
 mod footer;
 mod help;
-mod context_selector;
 mod provider_selector;
-mod file_preview;
+mod tree_view;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::app::{App, AppMode};
 
-pub use tree_view::render_tree;
+pub use context_selector::render_context_selector;
+pub use file_preview::render_file_preview;
 pub use footer::render_footer;
 pub use help::render_help;
-pub use context_selector::render_context_selector;
 pub use provider_selector::render_provider_selector;
-pub use file_preview::render_file_preview;
+pub use tree_view::render_tree;
 
 /// Main UI layout - Full-width tree view with footer
 pub fn render(frame: &mut Frame, app: &mut App) {
@@ -35,8 +35,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Min(3),      // Main content area (tree + preview)
-                    Constraint::Length(1),   // Footer/status bar
+                    Constraint::Min(3),    // Main content area (tree + preview)
+                    Constraint::Length(1), // Footer/status bar
                 ])
                 .split(frame.area());
 
@@ -48,8 +48,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 let main_chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([
-                        Constraint::Percentage(40),  // Tree view
-                        Constraint::Percentage(60),  // Preview pane
+                        Constraint::Percentage(40), // Tree view
+                        Constraint::Percentage(60), // Preview pane
                     ])
                     .split(main_area);
 

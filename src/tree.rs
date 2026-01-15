@@ -81,7 +81,13 @@ impl TreeState {
     }
 
     /// Add children to an expanded node
-    pub fn set_children(&mut self, parent_key: &str, objects: Vec<ObjectInfo>, has_more: bool, continuation_token: Option<String>) {
+    pub fn set_children(
+        &mut self,
+        parent_key: &str,
+        objects: Vec<ObjectInfo>,
+        has_more: bool,
+        continuation_token: Option<String>,
+    ) {
         let parent_depth = self.nodes.get(parent_key).map(|n| n.depth).unwrap_or(0);
 
         // Update parent node
@@ -93,7 +99,8 @@ impl TreeState {
         }
 
         // Remove old children of this parent
-        let old_children: Vec<String> = self.nodes
+        let old_children: Vec<String> = self
+            .nodes
             .iter()
             .filter(|(_, n)| n.parent_key == parent_key)
             .map(|(k, _)| k.clone())
@@ -126,7 +133,13 @@ impl TreeState {
     }
 
     /// Append more children to an already expanded node (for pagination)
-    pub fn append_children(&mut self, parent_key: &str, objects: Vec<ObjectInfo>, has_more: bool, continuation_token: Option<String>) {
+    pub fn append_children(
+        &mut self,
+        parent_key: &str,
+        objects: Vec<ObjectInfo>,
+        has_more: bool,
+        continuation_token: Option<String>,
+    ) {
         let parent_depth = self.nodes.get(parent_key).map(|n| n.depth).unwrap_or(0);
 
         // Update parent node
@@ -161,7 +174,9 @@ impl TreeState {
 
     /// Get the continuation token for a node
     pub fn get_continuation_token(&self, key: &str) -> Option<String> {
-        self.nodes.get(key).and_then(|n| n.continuation_token.clone())
+        self.nodes
+            .get(key)
+            .and_then(|n| n.continuation_token.clone())
     }
 
     /// Toggle expanded state for a directory
@@ -417,9 +432,7 @@ mod tests {
 
         // Setup: add root and initial children
         tree.set_root(vec![ObjectInfo::prefix("logs/", "logs/")], false);
-        let initial_children = vec![
-            ObjectInfo::object("app.log", "logs/app.log", 100),
-        ];
+        let initial_children = vec![ObjectInfo::object("app.log", "logs/app.log", 100)];
         tree.set_children("logs/", initial_children, true, Some("token1".to_string()));
 
         // Verify initial state
@@ -458,7 +471,10 @@ mod tests {
         );
 
         // Should return the token
-        assert_eq!(tree.get_continuation_token("data/"), Some("my-token".to_string()));
+        assert_eq!(
+            tree.get_continuation_token("data/"),
+            Some("my-token".to_string())
+        );
 
         // Non-existent key should return None
         assert_eq!(tree.get_continuation_token("nonexistent/"), None);

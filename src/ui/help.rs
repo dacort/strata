@@ -17,9 +17,12 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
 
     let help_lines = vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  Navigation", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "  Navigation",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         keybinding_line("↑/k", "Move up"),
         keybinding_line("↓/j", "Move down"),
@@ -29,9 +32,12 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         keybinding_line("g", "Go to first item"),
         keybinding_line("G", "Go to last item"),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  File Preview", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "  File Preview",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         keybinding_line("H", "Head mode (first lines)"),
         keybinding_line("T", "Tail mode (last lines)"),
@@ -39,27 +45,33 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         keybinding_line("S", "Save file locally"),
         keybinding_line("j/k", "Scroll in preview"),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  Actions", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "  Actions",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         keybinding_line("r", "Refresh tree"),
         keybinding_line("L", "Load more items (truncated)"),
         keybinding_line("c", "Switch context (bucket/resource)"),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  General", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "  General",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         keybinding_line("?", "Toggle this help"),
         keybinding_line("q/Esc", "Quit"),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                "  Press any key to close",
-                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-            ),
-        ]),
+        Line::from(vec![Span::styled(
+            "  Press any key to close",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]),
     ];
 
     let paragraph = Paragraph::new(help_lines)

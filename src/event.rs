@@ -6,7 +6,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::mpsc;
 
 use crate::app::{App, AppMode};
-use crate::preview::{PreviewMode, PREVIEW_BYTES};
+use crate::preview::{PREVIEW_BYTES, PreviewMode};
 use crate::provider::ObjectInfo;
 
 /// Application events
@@ -80,11 +80,10 @@ pub fn spawn_event_reader(tx: mpsc::Sender<AppEvent>) {
         loop {
             // Poll for events with timeout for tick
             if event::poll(Duration::from_millis(100)).unwrap_or(false) {
-                if let Ok(Event::Key(key)) = event::read() {
-                    if tx.send(AppEvent::Key(key)).await.is_err() {
+                if let Ok(Event::Key(key)) = event::read()
+                    && tx.send(AppEvent::Key(key)).await.is_err() {
                         break;
                     }
-                }
             } else {
                 // Send tick event
                 if tx.send(AppEvent::Tick).await.is_err() {
@@ -454,7 +453,9 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
                     // Move to parent
                     if !node.parent_key.is_empty() {
                         // Find parent's index in visible list
-                        if let Some(idx) = app.tree.visible.iter().position(|k| k == &node.parent_key) {
+                        if let Some(idx) =
+                            app.tree.visible.iter().position(|k| k == &node.parent_key)
+                        {
                             app.tree.selected_index = idx;
                         }
                     }
@@ -465,8 +466,8 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
 
         // Right arrow / l: expand directory, or focus preview if on file and preview visible
         KeyCode::Right | KeyCode::Char('l') => {
-            if let Some(key) = app.tree.selected_key().cloned() {
-                if let Some(node) = app.tree.nodes.get(&key) {
+            if let Some(key) = app.tree.selected_key().cloned()
+                && let Some(node) = app.tree.nodes.get(&key) {
                     if node.is_dir {
                         // Directory: expand if collapsed
                         if !app.tree.is_expanded(&key) {
@@ -485,19 +486,16 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
                         // Otherwise do nothing (Enter opens preview)
                     }
                 }
-            }
             KeyResult::Handled
         }
 
         // Refresh
-        KeyCode::Char('r') => {
-            KeyResult::Refresh
-        }
+        KeyCode::Char('r') => KeyResult::Refresh,
 
         // Load more items (for truncated listings)
         KeyCode::Char('L') => {
-            if let Some(key) = app.tree.selected_key() {
-                if let Some(node) = app.tree.nodes.get(key) {
+            if let Some(key) = app.tree.selected_key()
+                && let Some(node) = app.tree.nodes.get(key) {
                     // Check if the current selection's parent has more children to load
                     let parent_key = if node.parent_key.is_empty() {
                         // At root level - can't load more (yet)
@@ -507,13 +505,12 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
                     };
 
                     // Check if parent has more children
-                    if let Some(parent_node) = app.tree.nodes.get(&parent_key) {
-                        if parent_node.has_more_children && parent_node.continuation_token.is_some() {
+                    if let Some(parent_node) = app.tree.nodes.get(&parent_key)
+                        && parent_node.has_more_children && parent_node.continuation_token.is_some()
+                        {
                             return KeyResult::LoadMore(parent_key);
                         }
-                    }
                 }
-            }
             KeyResult::Handled
         }
 

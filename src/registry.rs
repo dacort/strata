@@ -71,11 +71,15 @@ mod tests {
     fn test_parse_s3_uri() {
         assert_eq!(
             parse_uri("s3://my-bucket"),
-            Some(ParsedUri::S3 { bucket: "my-bucket".to_string() })
+            Some(ParsedUri::S3 {
+                bucket: "my-bucket".to_string()
+            })
         );
         assert_eq!(
             parse_uri("s3://my-bucket/"),
-            Some(ParsedUri::S3 { bucket: "my-bucket".to_string() })
+            Some(ParsedUri::S3 {
+                bucket: "my-bucket".to_string()
+            })
         );
     }
 
