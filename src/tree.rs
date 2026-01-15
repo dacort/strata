@@ -413,7 +413,12 @@ impl TreeState {
 
         // Look for the next directory at the same depth or shallower
         // This naturally handles: next sibling, or parent's next sibling, etc.
-        for (idx, key) in self.visible.iter().enumerate().skip(self.selected_index + 1) {
+        for (idx, key) in self
+            .visible
+            .iter()
+            .enumerate()
+            .skip(self.selected_index + 1)
+        {
             if let Some(node) = self.nodes.get(key) {
                 // Found a directory at same level or higher (shallower) = that's our target
                 if node.is_dir && node.depth <= current_depth {
