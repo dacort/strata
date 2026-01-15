@@ -20,11 +20,64 @@ impl Provider for MockProvider {
     async fn list(
         &self,
         prefix: &str,
-        _continuation_token: Option<&str>,
+        continuation_token: Option<&str>,
         _max_keys: usize,
     ) -> anyhow::Result<ListResult> {
         // Simulate some network delay
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+        // Simulate pagination for the "data/raw/" prefix
+        if prefix == "data/raw/" {
+            let page = continuation_token
+                .and_then(|t| t.parse::<usize>().ok())
+                .unwrap_or(0);
+
+            return match page {
+                0 => {
+                    // First page - 3 items
+                    Ok(ListResult {
+                        objects: vec![
+                            ObjectInfo::object("2024-01-01.json", "data/raw/2024-01-01.json", 1024 * 100),
+                            ObjectInfo::object("2024-01-02.json", "data/raw/2024-01-02.json", 1024 * 150),
+                            ObjectInfo::object("2024-01-03.json", "data/raw/2024-01-03.json", 1024 * 120),
+                        ],
+                        continuation_token: Some("1".to_string()),
+                        is_truncated: true,
+                    })
+                }
+                1 => {
+                    // Second page - 3 more items
+                    Ok(ListResult {
+                        objects: vec![
+                            ObjectInfo::object("2024-01-04.json", "data/raw/2024-01-04.json", 1024 * 130),
+                            ObjectInfo::object("2024-01-05.json", "data/raw/2024-01-05.json", 1024 * 140),
+                            ObjectInfo::object("2024-01-06.json", "data/raw/2024-01-06.json", 1024 * 110),
+                        ],
+                        continuation_token: Some("2".to_string()),
+                        is_truncated: true,
+                    })
+                }
+                2 => {
+                    // Third page - final 2 items
+                    Ok(ListResult {
+                        objects: vec![
+                            ObjectInfo::object("2024-01-07.json", "data/raw/2024-01-07.json", 1024 * 125),
+                            ObjectInfo::object("2024-01-08.json", "data/raw/2024-01-08.json", 1024 * 135),
+                        ],
+                        continuation_token: None,
+                        is_truncated: false,
+                    })
+                }
+                _ => {
+                    // No more items
+                    Ok(ListResult {
+                        objects: vec![],
+                        continuation_token: None,
+                        is_truncated: false,
+                    })
+                }
+            };
+        }
 
         let objects = if prefix.is_empty() {
             // Root level - show some directories
@@ -48,12 +101,6 @@ impl Provider for MockProvider {
                 ObjectInfo::object("users.parquet", "data/users.parquet", 1024 * 1024 * 150),
                 ObjectInfo::object("events.parquet", "data/events.parquet", 1024 * 1024 * 1024 * 2),
                 ObjectInfo::object("backup.tar.gz", "data/backup.tar.gz", 1024 * 1024 * 500),
-            ]
-        } else if prefix == "data/raw/" {
-            vec![
-                ObjectInfo::object("2024-01-01.json", "data/raw/2024-01-01.json", 1024 * 100),
-                ObjectInfo::object("2024-01-02.json", "data/raw/2024-01-02.json", 1024 * 150),
-                ObjectInfo::object("2024-01-03.json", "data/raw/2024-01-03.json", 1024 * 120),
             ]
         } else if prefix == "models/" {
             vec![

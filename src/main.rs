@@ -355,6 +355,21 @@ async fn run_app_loop<P: Provider + Clone>(
                                 tx.clone(),
                             );
                         }
+                        KeyResult::LoadMore(parent_key) => {
+                            // Get the continuation token from the parent node
+                            if let Some(token) = app.tree.get_continuation_token(&parent_key) {
+                                // Get the prefix from the parent key
+                                let prefix = parent_key.clone();
+                                app.tree.set_loading(&parent_key, true);
+                                spawn_load_more_task(
+                                    provider.clone(),
+                                    prefix,
+                                    parent_key,
+                                    token,
+                                    tx.clone(),
+                                );
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -365,9 +380,13 @@ async fn run_app_loop<P: Provider + Clone>(
                     app.tree.set_loading("", false);
                     app.tree.set_root(objects, has_more);
                 }
-                AppEvent::ChildrenLoaded { parent_key, objects, has_more } => {
+                AppEvent::ChildrenLoaded { parent_key, objects, has_more, continuation_token } => {
                     app.tree.set_loading(&parent_key, false);
-                    app.tree.set_children(&parent_key, objects, has_more);
+                    app.tree.set_children(&parent_key, objects, has_more, continuation_token);
+                }
+                AppEvent::MoreChildrenLoaded { parent_key, objects, has_more, continuation_token } => {
+                    app.tree.set_loading(&parent_key, false);
+                    app.tree.append_children(&parent_key, objects, has_more, continuation_token);
                 }
                 AppEvent::LoadError(prefix, err) => {
                     app.tree.set_loading(&prefix, false);
@@ -436,11 +455,36 @@ fn spawn_list_task<P: Provider + Clone>(
                         parent_key: key,
                         objects: result.objects,
                         has_more: result.is_truncated,
+                        continuation_token: result.continuation_token,
                     }
                 } else {
                     AppEvent::RootLoaded(result.objects, result.is_truncated)
                 };
                 let _ = tx.send(event).await;
+            }
+            Err(e) => {
+                let _ = tx.send(AppEvent::LoadError(prefix, e.to_string())).await;
+            }
+        }
+    });
+}
+
+fn spawn_load_more_task<P: Provider + Clone>(
+    provider: P,
+    prefix: String,
+    parent_key: String,
+    continuation_token: String,
+    tx: mpsc::Sender<AppEvent>,
+) {
+    tokio::spawn(async move {
+        match provider.list(&prefix, Some(&continuation_token), 1000).await {
+            Ok(result) => {
+                let _ = tx.send(AppEvent::MoreChildrenLoaded {
+                    parent_key,
+                    objects: result.objects,
+                    has_more: result.is_truncated,
+                    continuation_token: result.continuation_token,
+                }).await;
             }
             Err(e) => {
                 let _ = tx.send(AppEvent::LoadError(prefix, e.to_string())).await;

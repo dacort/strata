@@ -172,14 +172,78 @@ pub fn render_tree(frame: &mut Frame, app: &mut App, area: Rect) {
 
 /// Add "load more" hints after expanded directories that have more items
 fn add_load_more_hints(
-    _app: &App,
+    app: &App,
     items: Vec<ListItem<'static>>,
-    _scroll_offset: usize,
+    scroll_offset: usize,
     _visible_height: usize,
 ) -> Vec<ListItem<'static>> {
-    // TODO: Add "load more" hints for truncated listings
-    // For now, just return items as-is
-    items
+    let visible_nodes = app.tree.visible_nodes();
+
+    if visible_nodes.is_empty() {
+        return items;
+    }
+
+    let mut result = Vec::with_capacity(items.len() + 10);
+
+    for (idx, item) in items.into_iter().enumerate() {
+        result.push(item);
+
+        // Calculate the actual index in the full visible_nodes list
+        let visible_idx = idx + scroll_offset;
+
+        if visible_idx >= visible_nodes.len() {
+            continue;
+        }
+
+        let current_node = &visible_nodes[visible_idx];
+        let current_parent = &current_node.1.parent_key;
+
+        // Check if the next node in the full list has a different parent
+        // This indicates we've reached the end of the current directory's children
+        let is_last_child_in_parent = if visible_idx + 1 < visible_nodes.len() {
+            let next_node = &visible_nodes[visible_idx + 1];
+            let next_parent = &next_node.1.parent_key;
+            current_parent != next_parent
+        } else {
+            // Last item overall
+            true
+        };
+
+        // If this is the last child and parent has more children, add hint
+        if is_last_child_in_parent && !current_parent.is_empty() {
+            if let Some(parent_node) = app.tree.nodes.get(current_parent) {
+                if parent_node.has_more_children {
+                    let hint = create_load_more_hint(parent_node.depth + 1, parent_node.child_count);
+                    result.push(hint);
+                }
+            }
+        }
+    }
+
+    result
+}
+
+fn create_load_more_hint(depth: usize, child_count: Option<usize>) -> ListItem<'static> {
+    // Create indentation matching the tree depth
+    let tree_prefix = if depth > 0 {
+        format!("{}   ", "   ".repeat(depth - 1))
+    } else {
+        String::new()
+    };
+
+    let count_text = if let Some(count) = child_count {
+        format!("... {} shown, more available (L to load)", count)
+    } else {
+        "... more available (L to load)".to_string()
+    };
+
+    let text = format!("{}{}", tree_prefix, count_text);
+    ListItem::new(Line::from(Span::styled(
+        text,
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::ITALIC),
+    )))
 }
 
 fn format_size(bytes: u64) -> String {

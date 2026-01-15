@@ -23,6 +23,14 @@ pub enum AppEvent {
         parent_key: String,
         objects: Vec<ObjectInfo>,
         has_more: bool,
+        continuation_token: Option<String>,
+    },
+    /// More children loaded for a prefix (pagination)
+    MoreChildrenLoaded {
+        parent_key: String,
+        objects: Vec<ObjectInfo>,
+        has_more: bool,
+        continuation_token: Option<String>,
     },
     /// Contexts loaded
     ContextsLoaded(Vec<crate::provider::ContextInfo>),
@@ -62,6 +70,8 @@ pub enum KeyResult {
     OpenInPager(String),
     /// Save file to local path (remote_key, local_path)
     SaveToLocal(String, String),
+    /// Load more items for a directory (parent_key)
+    LoadMore(String),
 }
 
 /// Spawn a task to read keyboard events
@@ -482,6 +492,29 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
         // Refresh
         KeyCode::Char('r') => {
             KeyResult::Refresh
+        }
+
+        // Load more items (for truncated listings)
+        KeyCode::Char('L') => {
+            if let Some(key) = app.tree.selected_key() {
+                if let Some(node) = app.tree.nodes.get(key) {
+                    // Check if the current selection's parent has more children to load
+                    let parent_key = if node.parent_key.is_empty() {
+                        // At root level - can't load more (yet)
+                        return KeyResult::Handled;
+                    } else {
+                        node.parent_key.clone()
+                    };
+
+                    // Check if parent has more children
+                    if let Some(parent_node) = app.tree.nodes.get(&parent_key) {
+                        if parent_node.has_more_children && parent_node.continuation_token.is_some() {
+                            return KeyResult::LoadMore(parent_key);
+                        }
+                    }
+                }
+            }
+            KeyResult::Handled
         }
 
         _ => KeyResult::None,

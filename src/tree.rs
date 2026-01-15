@@ -23,6 +23,8 @@ pub struct TreeNode {
     pub child_count: Option<usize>,
     /// Whether there are more children to load
     pub has_more_children: bool,
+    /// Continuation token for loading more children
+    pub continuation_token: Option<String>,
 }
 
 /// Tree state - manages expanded nodes and flattened view
@@ -63,6 +65,7 @@ impl TreeState {
                 children_loaded: false,
                 child_count: None,
                 has_more_children: false,
+                continuation_token: None,
             };
 
             self.nodes.insert(key.clone(), node);
@@ -78,7 +81,7 @@ impl TreeState {
     }
 
     /// Add children to an expanded node
-    pub fn set_children(&mut self, parent_key: &str, objects: Vec<ObjectInfo>, has_more: bool) {
+    pub fn set_children(&mut self, parent_key: &str, objects: Vec<ObjectInfo>, has_more: bool, continuation_token: Option<String>) {
         let parent_depth = self.nodes.get(parent_key).map(|n| n.depth).unwrap_or(0);
 
         // Update parent node
@@ -86,6 +89,7 @@ impl TreeState {
             parent.children_loaded = true;
             parent.child_count = Some(objects.len());
             parent.has_more_children = has_more;
+            parent.continuation_token = continuation_token;
         }
 
         // Remove old children of this parent
@@ -112,12 +116,52 @@ impl TreeState {
                 children_loaded: false,
                 child_count: None,
                 has_more_children: false,
+                continuation_token: None,
             };
 
             self.nodes.insert(key, node);
         }
 
         self.rebuild_visible();
+    }
+
+    /// Append more children to an already expanded node (for pagination)
+    pub fn append_children(&mut self, parent_key: &str, objects: Vec<ObjectInfo>, has_more: bool, continuation_token: Option<String>) {
+        let parent_depth = self.nodes.get(parent_key).map(|n| n.depth).unwrap_or(0);
+
+        // Update parent node
+        if let Some(parent) = self.nodes.get_mut(parent_key) {
+            let current_count = parent.child_count.unwrap_or(0);
+            parent.child_count = Some(current_count + objects.len());
+            parent.has_more_children = has_more;
+            parent.continuation_token = continuation_token;
+        }
+
+        // Add new children (don't remove existing ones)
+        for obj in objects {
+            let key = obj.key.clone();
+            let is_dir = obj.key.ends_with('/');
+
+            let node = TreeNode {
+                info: obj,
+                depth: parent_depth + 1,
+                parent_key: parent_key.to_string(),
+                is_dir,
+                children_loaded: false,
+                child_count: None,
+                has_more_children: false,
+                continuation_token: None,
+            };
+
+            self.nodes.insert(key, node);
+        }
+
+        self.rebuild_visible();
+    }
+
+    /// Get the continuation token for a node
+    pub fn get_continuation_token(&self, key: &str) -> Option<String> {
+        self.nodes.get(key).and_then(|n| n.continuation_token.clone())
     }
 
     /// Toggle expanded state for a directory
@@ -337,5 +381,86 @@ impl TreeState {
         }
 
         prefix
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_continuation_token_storage() {
+        let mut tree = TreeState::new();
+
+        // Add a root directory
+        let root_obj = ObjectInfo::prefix("data/", "data/");
+        tree.set_root(vec![root_obj], false);
+
+        // Add children with continuation token
+        let children = vec![
+            ObjectInfo::object("file1.txt", "data/file1.txt", 100),
+            ObjectInfo::object("file2.txt", "data/file2.txt", 200),
+        ];
+        let token = Some("next-page-token".to_string());
+        tree.set_children("data/", children, true, token.clone());
+
+        // Verify the parent has the continuation token
+        let parent = tree.nodes.get("data/").unwrap();
+        assert_eq!(parent.has_more_children, true);
+        assert_eq!(parent.continuation_token, token);
+        assert_eq!(parent.child_count, Some(2));
+    }
+
+    #[test]
+    fn test_append_children() {
+        let mut tree = TreeState::new();
+
+        // Setup: add root and initial children
+        tree.set_root(vec![ObjectInfo::prefix("logs/", "logs/")], false);
+        let initial_children = vec![
+            ObjectInfo::object("app.log", "logs/app.log", 100),
+        ];
+        tree.set_children("logs/", initial_children, true, Some("token1".to_string()));
+
+        // Verify initial state
+        assert_eq!(tree.nodes.get("logs/").unwrap().child_count, Some(1));
+        assert_eq!(tree.nodes.get("logs/").unwrap().has_more_children, true);
+
+        // Append more children
+        let more_children = vec![
+            ObjectInfo::object("error.log", "logs/error.log", 200),
+            ObjectInfo::object("debug.log", "logs/debug.log", 300),
+        ];
+        tree.append_children("logs/", more_children, false, None);
+
+        // Verify appended state
+        let parent = tree.nodes.get("logs/").unwrap();
+        assert_eq!(parent.child_count, Some(3)); // 1 + 2 = 3
+        assert_eq!(parent.has_more_children, false);
+        assert_eq!(parent.continuation_token, None);
+
+        // Verify all children exist
+        assert!(tree.nodes.contains_key("logs/app.log"));
+        assert!(tree.nodes.contains_key("logs/error.log"));
+        assert!(tree.nodes.contains_key("logs/debug.log"));
+    }
+
+    #[test]
+    fn test_get_continuation_token() {
+        let mut tree = TreeState::new();
+
+        tree.set_root(vec![ObjectInfo::prefix("data/", "data/")], false);
+        tree.set_children(
+            "data/",
+            vec![ObjectInfo::object("file.txt", "data/file.txt", 100)],
+            true,
+            Some("my-token".to_string()),
+        );
+
+        // Should return the token
+        assert_eq!(tree.get_continuation_token("data/"), Some("my-token".to_string()));
+
+        // Non-existent key should return None
+        assert_eq!(tree.get_continuation_token("nonexistent/"), None);
     }
 }

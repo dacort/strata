@@ -44,6 +44,8 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         ]),
         Line::from(""),
         keybinding_line("r", "Refresh tree"),
+        keybinding_line("L", "Load more items (truncated)"),
+        keybinding_line("c", "Switch context (bucket/resource)"),
         Line::from(""),
         Line::from(vec![
             Span::styled("  General", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
