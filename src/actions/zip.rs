@@ -136,14 +136,11 @@ impl<P: Provider> ZipArchiveAction<P> {
                 data[pos + 27],
             ]) as u64;
 
-            let filename_len =
-                u16::from_le_bytes([data[pos + 28], data[pos + 29]]) as usize;
+            let filename_len = u16::from_le_bytes([data[pos + 28], data[pos + 29]]) as usize;
 
-            let extra_len =
-                u16::from_le_bytes([data[pos + 30], data[pos + 31]]) as usize;
+            let extra_len = u16::from_le_bytes([data[pos + 30], data[pos + 31]]) as usize;
 
-            let comment_len =
-                u16::from_le_bytes([data[pos + 32], data[pos + 33]]) as usize;
+            let comment_len = u16::from_le_bytes([data[pos + 32], data[pos + 33]]) as usize;
 
             // Ensure we have enough data for the variable-length fields
             let total_entry_size = CDFH_MIN_SIZE + filename_len + extra_len + comment_len;
@@ -326,8 +323,7 @@ impl<P: Provider> ZipExtractAction<P> {
 
         // Parse the archive
         let cursor = Cursor::new(archive_data);
-        let mut archive = ZipArchive::new(cursor)
-            .context("Failed to parse ZIP archive")?;
+        let mut archive = ZipArchive::new(cursor).context("Failed to parse ZIP archive")?;
 
         // Find the entry by name
         let mut entry = archive
@@ -557,7 +553,10 @@ mod tests {
 
         let result = ZipArchiveAction::<crate::mock_provider::MockProvider>::find_eocd(&data, 0);
 
-        assert!(result.is_ok(), "Should find EOCD at exact MIN_EOCD_SIZE boundary");
+        assert!(
+            result.is_ok(),
+            "Should find EOCD at exact MIN_EOCD_SIZE boundary"
+        );
         let (info, offset) = result.unwrap();
         assert_eq!(info.central_dir_size, 500);
         assert_eq!(info.central_dir_offset, 1000);
@@ -581,33 +580,41 @@ mod integration_tests {
                 return;
             }
         };
-        
+
         let size = file.metadata().unwrap().len();
         println!("ZIP file size: {}", size);
-        
+
         // Simulate what list_zip_contents does
         let eocd_start = size.saturating_sub(EOCD_SEARCH_SIZE);
         file.seek(SeekFrom::Start(eocd_start)).unwrap();
         let mut eocd_data = vec![0u8; (size - eocd_start) as usize];
         file.read_exact(&mut eocd_data).unwrap();
-        
+
         // Find EOCD
-        let (eocd_info, _eocd_offset_in_buffer) = 
-            ZipArchiveAction::<crate::mock_provider::MockProvider>::find_eocd(&eocd_data, eocd_start).unwrap();
-        
-        println!("CD offset: {}, CD size: {}", eocd_info.central_dir_offset, eocd_info.central_dir_size);
-        
+        let (eocd_info, _eocd_offset_in_buffer) = ZipArchiveAction::<
+            crate::mock_provider::MockProvider,
+        >::find_eocd(&eocd_data, eocd_start)
+        .unwrap();
+
+        println!(
+            "CD offset: {}, CD size: {}",
+            eocd_info.central_dir_offset, eocd_info.central_dir_size
+        );
+
         // Read central directory
-        file.seek(SeekFrom::Start(eocd_info.central_dir_offset)).unwrap();
+        file.seek(SeekFrom::Start(eocd_info.central_dir_offset))
+            .unwrap();
         let mut central_dir_data = vec![0u8; eocd_info.central_dir_size as usize];
         file.read_exact(&mut central_dir_data).unwrap();
-        
+
         // Parse with our manual parser
-        let entries = ZipArchiveAction::<crate::mock_provider::MockProvider>::parse_central_directory(
-            &central_dir_data,
-            "test.zip"
-        ).unwrap();
-        
+        let entries =
+            ZipArchiveAction::<crate::mock_provider::MockProvider>::parse_central_directory(
+                &central_dir_data,
+                "test.zip",
+            )
+            .unwrap();
+
         println!("Found {} entries:", entries.len());
         for entry in entries.iter().take(5) {
             println!("  {} (size: {:?})", entry.name, entry.size);
@@ -615,7 +622,7 @@ mod integration_tests {
         if entries.len() > 5 {
             println!("  ... and {} more", entries.len() - 5);
         }
-        
+
         assert!(entries.len() > 0, "Should find entries in the ZIP file");
         assert_eq!(entries.len(), 18, "Expected 18 entries in test ZIP file");
     }
