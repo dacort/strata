@@ -55,7 +55,9 @@ impl TreeState {
 
         for obj in objects {
             let key = obj.key.clone();
-            let is_dir = obj.key.ends_with('/');
+            // Treat directories and ZIP archives as expandable
+            let is_dir = obj.key.ends_with('/')
+                || (obj.name.to_lowercase().ends_with(".zip") && !obj.key.contains('#'));
 
             let node = TreeNode {
                 info: obj,
@@ -88,7 +90,9 @@ impl TreeState {
         has_more: bool,
         continuation_token: Option<String>,
     ) {
+        eprintln!("  [set_children] parent_key='{}', objects={}", parent_key, objects.len());
         let parent_depth = self.nodes.get(parent_key).map(|n| n.depth).unwrap_or(0);
+        eprintln!("  [set_children] parent_depth={}", parent_depth);
 
         // Update parent node
         if let Some(parent) = self.nodes.get_mut(parent_key) {
@@ -98,22 +102,55 @@ impl TreeState {
             parent.continuation_token = continuation_token;
         }
 
-        // Remove old children of this parent
+        // Identify expanded children that should be preserved
+        // These are children of parent_key that are currently expanded
+        let expanded_children: HashSet<String> = self
+            .nodes
+            .iter()
+            .filter(|(k, n)| {
+                n.parent_key == parent_key && *k != parent_key && self.expanded.contains(*k)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        eprintln!("  [set_children] expanded_children: {:?}", expanded_children);
+
+        // Collect all descendants of expanded children (entire subtrees to preserve)
+        let mut nodes_to_preserve: HashSet<String> = expanded_children.clone();
+        for expanded_key in &expanded_children {
+            self.collect_all_descendants(expanded_key, &mut nodes_to_preserve);
+        }
+
+        eprintln!("  [set_children] nodes_to_preserve: {:?}", nodes_to_preserve);
+
+        // Remove old children that are NOT in the preserve set
         let old_children: Vec<String> = self
             .nodes
             .iter()
-            .filter(|(_, n)| n.parent_key == parent_key)
+            .filter(|(k, n)| {
+                n.parent_key == parent_key && *k != parent_key && !nodes_to_preserve.contains(*k)
+            })
             .map(|(k, _)| k.clone())
             .collect();
+
+        eprintln!("  [set_children] will remove {} old children: {:?}", old_children.len(), old_children);
 
         for key in old_children {
             self.nodes.remove(&key);
         }
 
-        // Add new children
+        // Add or update children from the new data
         for obj in objects {
             let key = obj.key.clone();
-            let is_dir = obj.key.ends_with('/');
+
+            // Skip if this is an expanded node we're preserving
+            if nodes_to_preserve.contains(&key) {
+                continue;
+            }
+
+            // Check if it's a directory (ends with /) or a ZIP archive (can be expanded)
+            let is_dir = obj.key.ends_with('/')
+                || (obj.name.to_lowercase().ends_with(".zip") && !obj.key.contains('#'));
 
             let node = TreeNode {
                 info: obj,
@@ -129,7 +166,21 @@ impl TreeState {
             self.nodes.insert(key, node);
         }
 
+        // Debug: Log ZIP-related nodes after modification
+        let zip_nodes: Vec<_> = self.nodes.keys().filter(|k| k.contains(".zip")).collect();
+        eprintln!("  [set_children] ZIP-related nodes after: {:?}", zip_nodes);
+
         self.rebuild_visible();
+    }
+
+    /// Helper to collect all descendants of a node recursively
+    fn collect_all_descendants(&self, key: &str, result: &mut HashSet<String>) {
+        for (child_key, node) in &self.nodes {
+            if node.parent_key == key {
+                result.insert(child_key.clone());
+                self.collect_all_descendants(child_key, result);
+            }
+        }
     }
 
     /// Append more children to an already expanded node (for pagination)
@@ -153,7 +204,9 @@ impl TreeState {
         // Add new children (don't remove existing ones)
         for obj in objects {
             let key = obj.key.clone();
-            let is_dir = obj.key.ends_with('/');
+            // Check if it's a directory (ends with /) or a ZIP archive (can be expanded)
+            let is_dir = obj.key.ends_with('/')
+                || (obj.name.to_lowercase().ends_with(".zip") && !obj.key.contains('#'));
 
             let node = TreeNode {
                 info: obj,
@@ -179,10 +232,13 @@ impl TreeState {
             .and_then(|n| n.continuation_token.clone())
     }
 
-    /// Toggle expanded state for a directory
+    /// Toggle expanded state for a directory or archive
     pub fn toggle_expanded(&mut self, key: &str) -> bool {
         if let Some(node) = self.nodes.get(key) {
-            if !node.is_dir {
+            // Allow expansion for directories OR ZIP archives
+            let is_expandable = node.is_dir || node.info.name.to_lowercase().ends_with(".zip");
+
+            if !is_expandable {
                 return false;
             }
 
@@ -208,7 +264,8 @@ impl TreeState {
     /// Check if a node needs to load children
     pub fn needs_children(&self, key: &str) -> bool {
         if let Some(node) = self.nodes.get(key) {
-            node.is_dir && self.is_expanded(key) && !node.children_loaded
+            let is_expandable = node.is_dir || node.info.name.to_lowercase().ends_with(".zip");
+            is_expandable && self.is_expanded(key) && !node.children_loaded
         } else {
             false
         }
@@ -581,5 +638,182 @@ mod tests {
 
         // Non-existent key should return None
         assert_eq!(tree.get_continuation_token("nonexistent/"), None);
+    }
+
+    #[test]
+    fn test_zip_file_stays_visible_when_expanded() {
+        let mut tree = TreeState::new();
+
+        // Add a ZIP file at root level
+        let zip_obj = ObjectInfo::object("archive.zip", "archive.zip", 1024);
+        tree.set_root(vec![zip_obj], false);
+
+        // Verify ZIP is in root and visible
+        assert!(tree.nodes.contains_key("archive.zip"));
+        assert_eq!(tree.visible.len(), 1);
+        assert_eq!(tree.visible[0], "archive.zip");
+
+        // Expand the ZIP file
+        tree.toggle_expanded("archive.zip");
+
+        // Add children (simulating ZIP contents)
+        let children = vec![
+            ObjectInfo::object("file1.txt", "archive.zip#file1.txt", 100),
+            ObjectInfo::object("file2.txt", "archive.zip#file2.txt", 200),
+        ];
+        tree.set_children("archive.zip", children, false, None);
+
+        // CRITICAL: ZIP file itself should still exist in nodes
+        assert!(
+            tree.nodes.contains_key("archive.zip"),
+            "ZIP file should not be removed from nodes"
+        );
+
+        // CRITICAL: ZIP file should still be visible
+        assert!(
+            tree.visible.contains(&"archive.zip".to_string()),
+            "ZIP file should remain visible after expansion"
+        );
+
+        // Children should also be visible
+        assert!(tree.visible.contains(&"archive.zip#file1.txt".to_string()));
+        assert!(tree.visible.contains(&"archive.zip#file2.txt".to_string()));
+
+        // Verify ordering: ZIP file should come before its children
+        let zip_idx = tree
+            .visible
+            .iter()
+            .position(|k| k == "archive.zip")
+            .unwrap();
+        let child1_idx = tree
+            .visible
+            .iter()
+            .position(|k| k == "archive.zip#file1.txt")
+            .unwrap();
+        assert!(
+            zip_idx < child1_idx,
+            "ZIP file should appear before its children"
+        );
+    }
+
+    #[test]
+    fn test_nested_zip_file_stays_visible() {
+        let mut tree = TreeState::new();
+
+        // Add a directory with a ZIP file inside
+        let dir_obj = ObjectInfo::prefix("data/", "data/");
+        tree.set_root(vec![dir_obj], false);
+
+        // Expand directory and add ZIP file
+        tree.toggle_expanded("data/");
+        let zip_obj = ObjectInfo::object("archive.zip", "data/archive.zip", 1024);
+        tree.set_children("data/", vec![zip_obj], false, None);
+
+        // Verify ZIP file exists
+        assert!(tree.nodes.contains_key("data/archive.zip"));
+
+        // Expand the ZIP file
+        tree.toggle_expanded("data/archive.zip");
+
+        // Add ZIP contents
+        let children = vec![ObjectInfo::object(
+            "nested.txt",
+            "data/archive.zip#nested.txt",
+            50,
+        )];
+        tree.set_children("data/archive.zip", children, false, None);
+
+        // CRITICAL: ZIP file should still exist
+        assert!(
+            tree.nodes.contains_key("data/archive.zip"),
+            "Nested ZIP file should not be removed"
+        );
+
+        // CRITICAL: ZIP file should be in visible list
+        assert!(
+            tree.visible.contains(&"data/archive.zip".to_string()),
+            "Nested ZIP file should remain visible"
+        );
+
+        // Child should also be visible
+        assert!(
+            tree.visible
+                .contains(&"data/archive.zip#nested.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parent_reload_preserves_expanded_zip() {
+        let mut tree = TreeState::new();
+
+        // Setup: Create a directory with a ZIP file inside
+        let dir_obj = ObjectInfo::prefix("data/", "data/");
+        tree.set_root(vec![dir_obj], false);
+
+        // Expand the directory and add children including a ZIP
+        tree.toggle_expanded("data/");
+        let children = vec![
+            ObjectInfo::object("file.txt", "data/file.txt", 100),
+            ObjectInfo::object("archive.zip", "data/archive.zip", 1024),
+        ];
+        tree.set_children("data/", children, false, None);
+
+        // Verify initial state
+        assert!(tree.nodes.contains_key("data/archive.zip"));
+        assert_eq!(tree.nodes.len(), 3); // data/, file.txt, archive.zip
+
+        // Expand the ZIP file
+        tree.toggle_expanded("data/archive.zip");
+        let zip_children = vec![
+            ObjectInfo::object("internal1.txt", "data/archive.zip#internal1.txt", 50),
+            ObjectInfo::object("internal2.txt", "data/archive.zip#internal2.txt", 75),
+        ];
+        tree.set_children("data/archive.zip", zip_children, false, None);
+
+        // Verify ZIP is expanded with children
+        assert!(tree.nodes.contains_key("data/archive.zip"));
+        assert!(tree.nodes.contains_key("data/archive.zip#internal1.txt"));
+        assert!(tree.nodes.contains_key("data/archive.zip#internal2.txt"));
+        assert_eq!(tree.nodes.len(), 5); // data/, file.txt, archive.zip, internal1.txt, internal2.txt
+
+        // CRITICAL TEST: Simulate parent directory reload (the bug scenario)
+        // When the parent directory reloads, it should preserve the expanded ZIP and its children
+        let new_children = vec![
+            ObjectInfo::object("file.txt", "data/file.txt", 100),
+            ObjectInfo::object("archive.zip", "data/archive.zip", 1024),
+            ObjectInfo::object("newfile.txt", "data/newfile.txt", 200), // New file added
+        ];
+        tree.set_children("data/", new_children, false, None);
+
+        // VERIFY: ZIP file and its expanded children should still exist
+        assert!(
+            tree.nodes.contains_key("data/archive.zip"),
+            "ZIP file should be preserved"
+        );
+        assert!(
+            tree.nodes.contains_key("data/archive.zip#internal1.txt"),
+            "ZIP child 1 should be preserved"
+        );
+        assert!(
+            tree.nodes.contains_key("data/archive.zip#internal2.txt"),
+            "ZIP child 2 should be preserved"
+        );
+        assert!(
+            tree.nodes.contains_key("data/newfile.txt"),
+            "New file should be added"
+        );
+
+        // VERIFY: ZIP should still be marked as expanded
+        assert!(
+            tree.is_expanded("data/archive.zip"),
+            "ZIP should still be expanded"
+        );
+
+        // VERIFY: ZIP children should be visible
+        assert!(
+            tree.visible
+                .contains(&"data/archive.zip#internal1.txt".to_string()),
+            "ZIP child 1 should be visible"
+        );
     }
 }

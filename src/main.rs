@@ -3,6 +3,7 @@
 //! This is not a shell. It's a view-first exploration tool where safety
 //! is a feature, not a limitation.
 
+mod actions;
 mod app;
 mod event;
 mod mock_provider;
@@ -130,41 +131,38 @@ async fn run_app_with_selector(
                         KeyResult::SwitchContext(resource_name) => {
                             // User selected a resource, transition to browse mode
                             if let Some(provider_id) = &app.selected_provider_id
-                                && provider_id == "s3" {
-                                    // Initialize S3 provider and switch to browse mode
-                                    match S3Provider::new(&resource_name).await {
-                                        Ok(provider) => {
-                                            let context = ProviderContext {
-                                                provider_name: "s3".to_string(),
-                                                root: resource_name.clone(),
-                                                current_prefix: String::new(),
-                                            };
-                                            app.enter_browse_mode(context);
+                                && provider_id == "s3"
+                            {
+                                // Initialize S3 provider and switch to browse mode
+                                match S3Provider::new(&resource_name).await {
+                                    Ok(provider) => {
+                                        let context = ProviderContext {
+                                            provider_name: "s3".to_string(),
+                                            root: resource_name.clone(),
+                                            current_prefix: String::new(),
+                                        };
+                                        app.enter_browse_mode(context);
 
-                                            // Initial root load
-                                            app.tree.set_loading("", true);
-                                            spawn_list_task(
-                                                provider,
-                                                String::new(),
-                                                None,
-                                                tx.clone(),
-                                            );
-                                        }
-                                        Err(e) => {
-                                            app.set_status(StatusMessage::error(format!(
-                                                "Failed to connect to S3: {}",
-                                                e
-                                            )));
-                                        }
+                                        // Initial root load
+                                        app.tree.set_loading("", true);
+                                        spawn_list_task(provider, String::new(), None, tx.clone());
+                                    }
+                                    Err(e) => {
+                                        app.set_status(StatusMessage::error(format!(
+                                            "Failed to connect to S3: {}",
+                                            e
+                                        )));
                                     }
                                 }
+                            }
                         }
                         KeyResult::LoadContexts => {
                             // In browse mode, reload contexts
                             if let Some(context) = &app.context
-                                && context.provider_name == "s3" {
-                                    spawn_s3_contexts_task(tx.clone());
-                                }
+                                && context.provider_name == "s3"
+                            {
+                                spawn_s3_contexts_task(tx.clone());
+                            }
                         }
                         _ => {}
                     }
@@ -188,17 +186,18 @@ async fn run_app_with_selector(
 
         // If we transitioned to browse mode with a provider, hand off to provider-specific loop
         if matches!(app.mode, app::AppMode::Browse)
-            && let Some(context) = app.context.clone() {
-                if context.provider_name == "s3" {
-                    // Get provider - need to recreate it
-                    if let Ok(provider) = S3Provider::new(&context.root).await {
-                        return run_app_loop(terminal, provider, app, tx, rx).await;
-                    }
-                } else if context.provider_name == "mock" {
-                    let provider = MockProvider::new();
+            && let Some(context) = app.context.clone()
+        {
+            if context.provider_name == "s3" {
+                // Get provider - need to recreate it
+                if let Ok(provider) = S3Provider::new(&context.root).await {
                     return run_app_loop(terminal, provider, app, tx, rx).await;
                 }
+            } else if context.provider_name == "mock" {
+                let provider = MockProvider::new();
+                return run_app_loop(terminal, provider, app, tx, rx).await;
             }
+        }
     }
 
     Ok(())
@@ -368,6 +367,17 @@ async fn run_app_loop<P: Provider + Clone>(
                                 );
                             }
                         }
+                        KeyResult::ListZipArchive(archive_key) => {
+                            spawn_zip_list_task(provider.clone(), archive_key, tx.clone());
+                        }
+                        KeyResult::ExtractZipFile(archive_key, internal_path) => {
+                            spawn_zip_extract_task(
+                                provider.clone(),
+                                archive_key,
+                                internal_path,
+                                tx.clone(),
+                            );
+                        }
                         _ => {}
                     }
                 }
@@ -384,9 +394,24 @@ async fn run_app_loop<P: Provider + Clone>(
                     has_more,
                     continuation_token,
                 } => {
+                    eprintln!("=== ChildrenLoaded for '{}' ===", parent_key);
+                    eprintln!("  objects count: {}", objects.len());
+                    eprintln!("  has_more: {}", has_more);
+                    eprintln!("  expanded nodes: {:?}", app.tree.expanded);
+                    // Check if any ZIP files are in expanded set
+                    for key in &app.tree.expanded {
+                        if key.ends_with(".zip") {
+                            eprintln!("  WARNING: ZIP '{}' is expanded before set_children", key);
+                            if let Some(node) = app.tree.nodes.get(key) {
+                                eprintln!("    ZIP parent_key: '{}'", node.parent_key);
+                                eprintln!("    ZIP children_loaded: {}", node.children_loaded);
+                            }
+                        }
+                    }
                     app.tree.set_loading(&parent_key, false);
                     app.tree
                         .set_children(&parent_key, objects, has_more, continuation_token);
+                    eprintln!("  After set_children, expanded: {:?}", app.tree.expanded);
                 }
                 AppEvent::MoreChildrenLoaded {
                     parent_key,
@@ -407,12 +432,39 @@ async fn run_app_loop<P: Provider + Clone>(
                 }
                 AppEvent::PreviewLoaded { key, content, mode } => {
                     if let Some(ref mut preview) = app.file_preview
-                        && preview.key == key {
-                            preview.update_content(content, mode);
-                        }
+                        && preview.key == key
+                    {
+                        preview.update_content(content, mode);
+                    }
                 }
                 AppEvent::PagerExited => {
                     // TUI already restored, nothing to do
+                }
+                AppEvent::ZipListLoaded {
+                    archive_key,
+                    children,
+                } => {
+                    eprintln!("=== ZipListLoaded for '{}' ===", archive_key);
+                    eprintln!("  children count: {}", children.len());
+                    eprintln!("  ZIP node exists: {}", app.tree.nodes.contains_key(&archive_key));
+                    if let Some(node) = app.tree.nodes.get(&archive_key) {
+                        eprintln!("  ZIP parent_key: '{}'", node.parent_key);
+                    }
+                    eprintln!("  expanded nodes: {:?}", app.tree.expanded);
+                    app.tree.set_loading(&archive_key, false);
+                    app.tree.set_children(&archive_key, children, false, None);
+                    eprintln!("  After set_children:");
+                    eprintln!("    ZIP node exists: {}", app.tree.nodes.contains_key(&archive_key));
+                    eprintln!("    visible contains ZIP: {}", app.tree.visible.contains(&archive_key));
+                    app.set_status(StatusMessage::info("ZIP archive loaded"));
+                }
+                AppEvent::ZipExtractLoaded { key, content } => {
+                    // Update the preview with extracted content
+                    if let Some(ref mut preview) = app.file_preview
+                        && preview.key == key
+                    {
+                        preview.update_content(content, PreviewMode::Head);
+                    }
                 }
             }
         }
@@ -706,5 +758,106 @@ fn spawn_download_task<P: Provider + Clone>(
 
         // Success - report via status message (we don't have a dedicated event for this)
         // The caller should show a status message
+    });
+}
+
+/// Spawn a task to list ZIP archive contents
+fn spawn_zip_list_task<P: Provider + Clone>(
+    provider: P,
+    archive_key: String,
+    tx: mpsc::Sender<AppEvent>,
+) {
+    tokio::spawn(async move {
+        use crate::actions::zip::ZipArchiveAction;
+        use std::sync::Arc;
+
+        // Create the ZIP action with the provider
+        let action = ZipArchiveAction::new(Arc::new(provider));
+
+        // Get archive metadata first
+        let metadata = match action.provider().head(&archive_key).await {
+            Ok(info) => info,
+            Err(e) => {
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        archive_key,
+                        format!("Failed to read ZIP metadata: {}", e),
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        let size = match metadata.size {
+            Some(s) => s,
+            None => {
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        archive_key,
+                        "ZIP file has no size".to_string(),
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        // List ZIP contents using the action's method
+        match action.list_zip_contents(&archive_key, size).await {
+            Ok(children) => {
+                let _ = tx
+                    .send(AppEvent::ZipListLoaded {
+                        archive_key,
+                        children,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        archive_key,
+                        format!("Failed to list ZIP contents: {}", e),
+                    ))
+                    .await;
+            }
+        }
+    });
+}
+
+/// Spawn a task to extract a file from a ZIP archive
+fn spawn_zip_extract_task<P: Provider + Clone>(
+    provider: P,
+    archive_key: String,
+    internal_path: String,
+    tx: mpsc::Sender<AppEvent>,
+) {
+    tokio::spawn(async move {
+        use crate::actions::zip::ZipExtractAction;
+        use std::sync::Arc;
+
+        // Create the ZIP extract action with the provider
+        let action = ZipExtractAction::new(Arc::new(provider));
+
+        // Reconstruct the full key for the preview
+        let full_key = format!("{}#{}", archive_key, internal_path);
+
+        // Extract the file
+        match action.extract_file(&archive_key, &internal_path).await {
+            Ok(content) => {
+                let _ = tx
+                    .send(AppEvent::ZipExtractLoaded {
+                        key: full_key,
+                        content,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        full_key,
+                        format!("Failed to extract file: {}", e),
+                    ))
+                    .await;
+            }
+        }
     });
 }

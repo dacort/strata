@@ -14,6 +14,46 @@ impl MockProvider {
             name: "mock".to_string(),
         }
     }
+
+    /// Create a mock ZIP file in memory and return the requested range
+    fn get_mock_zip_data(&self, start: u64, end: u64) -> anyhow::Result<Vec<u8>> {
+        use std::io::{Cursor, Write};
+        use zip::write::{FileOptions, SimpleFileOptions, ZipWriter};
+
+        // Create a ZIP file in memory
+        let mut zip_buffer = Cursor::new(Vec::new());
+        {
+            let mut zip = ZipWriter::new(&mut zip_buffer);
+            let options: FileOptions<()> = SimpleFileOptions::default().into();
+
+            // Add a few test files
+            zip.start_file("README.txt", options)?;
+            zip.write_all(b"This is a test README file inside the ZIP archive.\n")?;
+
+            zip.start_file("data/sample.json", options)?;
+            zip.write_all(b"{\"name\": \"test\", \"value\": 42}\n")?;
+
+            zip.start_file("data/config.yaml", options)?;
+            zip.write_all(b"version: 1.0\nname: test-config\n")?;
+
+            zip.start_file("scripts/setup.sh", options)?;
+            zip.write_all(b"#!/bin/bash\necho 'Setup complete'\n")?;
+
+            zip.finish()?;
+        }
+
+        let full_data = zip_buffer.into_inner();
+
+        // Return the requested range
+        let start_idx = start as usize;
+        let end_idx = (end as usize + 1).min(full_data.len());
+
+        if start_idx >= full_data.len() {
+            return Ok(Vec::new());
+        }
+
+        Ok(full_data[start_idx..end_idx].to_vec())
+    }
 }
 
 impl Provider for MockProvider {
@@ -137,6 +177,7 @@ impl Provider for MockProvider {
                     1024 * 1024 * 1024 * 2,
                 ),
                 ObjectInfo::object("backup.tar.gz", "data/backup.tar.gz", 1024 * 1024 * 500),
+                ObjectInfo::object("archive.zip", "data/archive.zip", 1024 * 1024 * 10),
             ]
         } else if prefix == "models/" {
             vec![
@@ -156,10 +197,22 @@ impl Provider for MockProvider {
     }
 
     async fn head(&self, key: &str) -> anyhow::Result<ObjectInfo> {
-        Ok(ObjectInfo::object(key, key, 1024))
+        // Return appropriate sizes for known files
+        let size = if key == "data/archive.zip" {
+            1024 * 1024 * 10 // 10MB
+        } else {
+            1024 // 1KB default
+        };
+        Ok(ObjectInfo::object(key, key, size))
     }
 
-    async fn get_range(&self, _key: &str, _start: u64, _end: u64) -> anyhow::Result<Vec<u8>> {
+    async fn get_range(&self, key: &str, start: u64, end: u64) -> anyhow::Result<Vec<u8>> {
+        // For ZIP files, return a minimal valid ZIP structure
+        if key == "data/archive.zip" {
+            return self.get_mock_zip_data(start, end);
+        }
+
+        // Default mock content
         Ok(b"Mock file content\nLine 2\nLine 3\n".to_vec())
     }
 
