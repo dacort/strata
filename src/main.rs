@@ -394,24 +394,9 @@ async fn run_app_loop<P: Provider + Clone>(
                     has_more,
                     continuation_token,
                 } => {
-                    eprintln!("=== ChildrenLoaded for '{}' ===", parent_key);
-                    eprintln!("  objects count: {}", objects.len());
-                    eprintln!("  has_more: {}", has_more);
-                    eprintln!("  expanded nodes: {:?}", app.tree.expanded);
-                    // Check if any ZIP files are in expanded set
-                    for key in &app.tree.expanded {
-                        if key.ends_with(".zip") {
-                            eprintln!("  WARNING: ZIP '{}' is expanded before set_children", key);
-                            if let Some(node) = app.tree.nodes.get(key) {
-                                eprintln!("    ZIP parent_key: '{}'", node.parent_key);
-                                eprintln!("    ZIP children_loaded: {}", node.children_loaded);
-                            }
-                        }
-                    }
                     app.tree.set_loading(&parent_key, false);
                     app.tree
                         .set_children(&parent_key, objects, has_more, continuation_token);
-                    eprintln!("  After set_children, expanded: {:?}", app.tree.expanded);
                 }
                 AppEvent::MoreChildrenLoaded {
                     parent_key,
@@ -444,18 +429,8 @@ async fn run_app_loop<P: Provider + Clone>(
                     archive_key,
                     children,
                 } => {
-                    eprintln!("=== ZipListLoaded for '{}' ===", archive_key);
-                    eprintln!("  children count: {}", children.len());
-                    eprintln!("  ZIP node exists: {}", app.tree.nodes.contains_key(&archive_key));
-                    if let Some(node) = app.tree.nodes.get(&archive_key) {
-                        eprintln!("  ZIP parent_key: '{}'", node.parent_key);
-                    }
-                    eprintln!("  expanded nodes: {:?}", app.tree.expanded);
                     app.tree.set_loading(&archive_key, false);
                     app.tree.set_children(&archive_key, children, false, None);
-                    eprintln!("  After set_children:");
-                    eprintln!("    ZIP node exists: {}", app.tree.nodes.contains_key(&archive_key));
-                    eprintln!("    visible contains ZIP: {}", app.tree.visible.contains(&archive_key));
                     app.set_status(StatusMessage::info("ZIP archive loaded"));
                 }
                 AppEvent::ZipExtractLoaded { key, content } => {

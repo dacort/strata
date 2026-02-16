@@ -90,9 +90,7 @@ impl TreeState {
         has_more: bool,
         continuation_token: Option<String>,
     ) {
-        eprintln!("  [set_children] parent_key='{}', objects={}", parent_key, objects.len());
         let parent_depth = self.nodes.get(parent_key).map(|n| n.depth).unwrap_or(0);
-        eprintln!("  [set_children] parent_depth={}", parent_depth);
 
         // Update parent node
         if let Some(parent) = self.nodes.get_mut(parent_key) {
@@ -113,15 +111,11 @@ impl TreeState {
             .map(|(k, _)| k.clone())
             .collect();
 
-        eprintln!("  [set_children] expanded_children: {:?}", expanded_children);
-
         // Collect all descendants of expanded children (entire subtrees to preserve)
         let mut nodes_to_preserve: HashSet<String> = expanded_children.clone();
         for expanded_key in &expanded_children {
             self.collect_all_descendants(expanded_key, &mut nodes_to_preserve);
         }
-
-        eprintln!("  [set_children] nodes_to_preserve: {:?}", nodes_to_preserve);
 
         // Remove old children that are NOT in the preserve set
         let old_children: Vec<String> = self
@@ -132,8 +126,6 @@ impl TreeState {
             })
             .map(|(k, _)| k.clone())
             .collect();
-
-        eprintln!("  [set_children] will remove {} old children: {:?}", old_children.len(), old_children);
 
         for key in old_children {
             self.nodes.remove(&key);
@@ -165,10 +157,6 @@ impl TreeState {
 
             self.nodes.insert(key, node);
         }
-
-        // Debug: Log ZIP-related nodes after modification
-        let zip_nodes: Vec<_> = self.nodes.keys().filter(|k| k.contains(".zip")).collect();
-        eprintln!("  [set_children] ZIP-related nodes after: {:?}", zip_nodes);
 
         self.rebuild_visible();
     }
