@@ -15,12 +15,14 @@ mod ui;
 
 use std::io::{self, stdout};
 
+use clap::Parser;
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::prelude::*;
 use tokio::sync::mpsc;
+use tracing::info;
 
 use app::{App, StatusMessage};
 use event::{AppEvent, KeyResult, spawn_event_reader};
@@ -30,24 +32,64 @@ use provider::{Provider, ProviderContext};
 use registry::{ParsedUri, get_available_providers, parse_uri};
 use s3_provider::S3Provider;
 
+/// A context-aware terminal UI for exploring object stores
+#[derive(Parser, Debug)]
+#[command(name = "s3sh", version, about)]
+struct Cli {
+    /// URI to open (e.g., s3://bucket-name)
+    uri: Option<String>,
+
+    /// Use mock/dev provider
+    #[arg(long)]
+    dev: bool,
+
+    /// Log level (e.g., debug, info, warn, error). Enables logging when set.
+    #[arg(short = 'l', long = "log-level")]
+    log_level: Option<String>,
+
+    /// Log file path
+    #[arg(long = "log-file", default_value = "./data-shell.log")]
+    log_file: String,
+}
+
+/// Set up file-based logging with tracing
+fn setup_logging(log_file: &str, level: &str) {
+    use std::path::Path;
+    use tracing_subscriber::EnvFilter;
+
+    let path = Path::new(log_file);
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let filename = path
+        .file_name()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap_or("data-shell.log");
+
+    let file_appender = tracing_appender::rolling::never(dir, filename);
+
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new(level))
+        .with_writer(file_appender)
+        .with_ansi(false)
+        .init();
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize error handling
     color_eyre::install().ok();
 
     // Parse command line arguments
-    let args: Vec<String> = std::env::args().collect();
-    let mut use_dev_mode = false;
-    let mut uri: Option<String> = None;
+    let cli = Cli::parse();
 
-    // Check for --dev flag and URI arguments
-    for arg in args.iter().skip(1) {
-        if arg == "--dev" {
-            use_dev_mode = true;
-        } else if !arg.starts_with('-') {
-            uri = Some(arg.clone());
-        }
+    // Set up logging if -l is specified
+    if let Some(ref level) = cli.log_level {
+        setup_logging(&cli.log_file, level);
+        info!("Logging initialized at level={} to file={}", level, cli.log_file);
     }
+
+    let use_dev_mode = cli.dev;
+    let uri = cli.uri;
 
     // Setup terminal
     enable_raw_mode()?;
@@ -55,6 +97,8 @@ async fn main() -> anyhow::Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+
+    info!("Starting data-shell (dev_mode={}, uri={:?})", use_dev_mode, uri);
 
     // Run the app based on arguments
     let result = if use_dev_mode {
@@ -534,13 +578,16 @@ fn spawn_contexts_task<P: Provider + Clone>(provider: P, tx: mpsc::Sender<AppEve
 
 fn spawn_s3_contexts_task(tx: mpsc::Sender<AppEvent>) {
     tokio::spawn(async move {
-        // Create a temporary S3 provider just to list buckets
-        match S3Provider::new("temp").await {
+        info!("Loading S3 bucket list");
+        // Create an S3 provider without targeting a specific bucket
+        match S3Provider::new_default().await {
             Ok(provider) => match provider.list_contexts().await {
                 Ok(contexts) => {
+                    info!(count = contexts.len(), "S3 buckets loaded");
                     let _ = tx.send(AppEvent::ContextsLoaded(contexts)).await;
                 }
                 Err(e) => {
+                    tracing::error!(error = %e, "Failed to load S3 buckets");
                     let _ = tx
                         .send(AppEvent::LoadError(
                             "contexts".to_string(),
@@ -550,6 +597,7 @@ fn spawn_s3_contexts_task(tx: mpsc::Sender<AppEvent>) {
                 }
             },
             Err(e) => {
+                tracing::error!(error = %e, "Failed to initialize S3 client");
                 let _ = tx
                     .send(AppEvent::LoadError(
                         "contexts".to_string(),
