@@ -1,4 +1,4 @@
-//! s3sh - A context-aware terminal UI for exploring object stores.
+//! strata - A context-aware terminal UI for exploring object stores.
 //!
 //! This is not a shell. It's a view-first exploration tool where safety
 //! is a feature, not a limitation.
@@ -34,7 +34,7 @@ use s3_provider::S3Provider;
 
 /// A context-aware terminal UI for exploring object stores
 #[derive(Parser, Debug)]
-#[command(name = "s3sh", version, about)]
+#[command(name = "strata", version, about)]
 struct Cli {
     /// URI to open (e.g., s3://bucket-name)
     uri: Option<String>,

@@ -1,5 +1,5 @@
 [package]
-name = "s3sh"
+name = "strata"
 version = "0.1.0"
 edition = "2024"
 description = "A context-aware terminal UI for exploring object stores and artifact repositories"
