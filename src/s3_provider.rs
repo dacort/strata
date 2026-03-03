@@ -3,6 +3,7 @@
 use crate::provider::{ContextInfo, ListResult, ObjectInfo, Provider};
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::Region;
+use tracing::debug;
 
 /// S3 provider backed by the AWS SDK
 #[derive(Clone)]
@@ -17,6 +18,7 @@ impl S3Provider {
     /// Create a new S3 provider with default credentials
     pub async fn new(bucket: impl Into<String>) -> anyhow::Result<Self> {
         let bucket = bucket.into();
+        debug!(bucket = %bucket, "Creating S3 provider");
         let base_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
 
         // Create a client for the bucket's actual region
@@ -75,6 +77,20 @@ impl S3Provider {
         }
     }
 
+    /// Create an S3 provider with default credentials, without targeting a specific bucket.
+    /// Used for operations like listing buckets that don't require a bucket-specific client.
+    pub async fn new_default() -> anyhow::Result<Self> {
+        debug!("Creating default S3 provider (no specific bucket)");
+        let base_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        let client = Client::new(&base_config);
+
+        Ok(Self {
+            client,
+            bucket: String::new(),
+            base_config,
+        })
+    }
+
     /// Switch to a different bucket (creates a new client for the bucket's region)
     pub async fn with_bucket(&self, bucket: impl Into<String>) -> anyhow::Result<Self> {
         let bucket = bucket.into();
@@ -113,6 +129,11 @@ impl Provider for S3Provider {
         }
 
         let response = request.send().await?;
+        debug!(
+            prefix = %prefix,
+            truncated = ?response.is_truncated,
+            "S3 list_objects_v2 response received"
+        );
 
         let mut objects = Vec::new();
 
@@ -205,6 +226,7 @@ impl Provider for S3Provider {
     }
 
     async fn list_contexts(&self) -> anyhow::Result<Vec<ContextInfo>> {
+        debug!("Listing S3 buckets");
         let response = self.client.list_buckets().send().await?;
 
         let mut contexts = Vec::new();
@@ -219,6 +241,7 @@ impl Provider for S3Provider {
             }
         }
 
+        debug!(count = contexts.len(), "Found S3 buckets");
         Ok(contexts)
     }
 
