@@ -176,9 +176,10 @@ impl App {
     /// Clear expired status messages
     pub fn clear_expired_status(&mut self) {
         if let Some(ref status) = self.status
-            && status.is_expired() {
-                self.status = None;
-            }
+            && status.is_expired()
+        {
+            self.status = None;
+        }
     }
 
     /// Toggle help overlay

@@ -85,7 +85,10 @@ async fn main() -> anyhow::Result<()> {
     // Set up logging if -l is specified
     if let Some(ref level) = cli.log_level {
         setup_logging(&cli.log_file, level);
-        info!("Logging initialized at level={} to file={}", level, cli.log_file);
+        info!(
+            "Logging initialized at level={} to file={}",
+            level, cli.log_file
+        );
     }
 
     let use_dev_mode = cli.dev;
@@ -98,7 +101,10 @@ async fn main() -> anyhow::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    info!("Starting data-shell (dev_mode={}, uri={:?})", use_dev_mode, uri);
+    info!(
+        "Starting data-shell (dev_mode={}, uri={:?})",
+        use_dev_mode, uri
+    );
 
     // Run the app based on arguments
     let result = if use_dev_mode {
@@ -174,41 +180,38 @@ async fn run_app_with_selector(
                         KeyResult::SwitchContext(resource_name) => {
                             // User selected a resource, transition to browse mode
                             if let Some(provider_id) = &app.selected_provider_id
-                                && provider_id == "s3" {
-                                    // Initialize S3 provider and switch to browse mode
-                                    match S3Provider::new(&resource_name).await {
-                                        Ok(provider) => {
-                                            let context = ProviderContext {
-                                                provider_name: "s3".to_string(),
-                                                root: resource_name.clone(),
-                                                current_prefix: String::new(),
-                                            };
-                                            app.enter_browse_mode(context);
+                                && provider_id == "s3"
+                            {
+                                // Initialize S3 provider and switch to browse mode
+                                match S3Provider::new(&resource_name).await {
+                                    Ok(provider) => {
+                                        let context = ProviderContext {
+                                            provider_name: "s3".to_string(),
+                                            root: resource_name.clone(),
+                                            current_prefix: String::new(),
+                                        };
+                                        app.enter_browse_mode(context);
 
-                                            // Initial root load
-                                            app.tree.set_loading("", true);
-                                            spawn_list_task(
-                                                provider,
-                                                String::new(),
-                                                None,
-                                                tx.clone(),
-                                            );
-                                        }
-                                        Err(e) => {
-                                            app.set_status(StatusMessage::error(format!(
-                                                "Failed to connect to S3: {}",
-                                                e
-                                            )));
-                                        }
+                                        // Initial root load
+                                        app.tree.set_loading("", true);
+                                        spawn_list_task(provider, String::new(), None, tx.clone());
+                                    }
+                                    Err(e) => {
+                                        app.set_status(StatusMessage::error(format!(
+                                            "Failed to connect to S3: {}",
+                                            e
+                                        )));
                                     }
                                 }
+                            }
                         }
                         KeyResult::LoadContexts => {
                             // In browse mode, reload contexts
                             if let Some(context) = &app.context
-                                && context.provider_name == "s3" {
-                                    spawn_s3_contexts_task(tx.clone());
-                                }
+                                && context.provider_name == "s3"
+                            {
+                                spawn_s3_contexts_task(tx.clone());
+                            }
                         }
                         _ => {}
                     }
@@ -232,17 +235,18 @@ async fn run_app_with_selector(
 
         // If we transitioned to browse mode with a provider, hand off to provider-specific loop
         if matches!(app.mode, app::AppMode::Browse)
-            && let Some(context) = app.context.clone() {
-                if context.provider_name == "s3" {
-                    // Get provider - need to recreate it
-                    if let Ok(provider) = S3Provider::new(&context.root).await {
-                        return run_app_loop(terminal, provider, app, tx, rx).await;
-                    }
-                } else if context.provider_name == "mock" {
-                    let provider = MockProvider::new();
+            && let Some(context) = app.context.clone()
+        {
+            if context.provider_name == "s3" {
+                // Get provider - need to recreate it
+                if let Ok(provider) = S3Provider::new(&context.root).await {
                     return run_app_loop(terminal, provider, app, tx, rx).await;
                 }
+            } else if context.provider_name == "mock" {
+                let provider = MockProvider::new();
+                return run_app_loop(terminal, provider, app, tx, rx).await;
             }
+        }
     }
 
     Ok(())
@@ -451,9 +455,10 @@ async fn run_app_loop<P: Provider + Clone>(
                 }
                 AppEvent::PreviewLoaded { key, content, mode } => {
                     if let Some(ref mut preview) = app.file_preview
-                        && preview.key == key {
-                            preview.update_content(content, mode);
-                        }
+                        && preview.key == key
+                    {
+                        preview.update_content(content, mode);
+                    }
                 }
                 AppEvent::PagerExited => {
                     // TUI already restored, nothing to do

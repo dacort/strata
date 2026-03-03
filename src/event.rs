@@ -81,9 +81,10 @@ pub fn spawn_event_reader(tx: mpsc::Sender<AppEvent>) {
             // Poll for events with timeout for tick
             if event::poll(Duration::from_millis(100)).unwrap_or(false) {
                 if let Ok(Event::Key(key)) = event::read()
-                    && tx.send(AppEvent::Key(key)).await.is_err() {
-                        break;
-                    }
+                    && tx.send(AppEvent::Key(key)).await.is_err()
+                {
+                    break;
+                }
             } else {
                 // Send tick event
                 if tx.send(AppEvent::Tick).await.is_err() {
@@ -492,25 +493,26 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
         // Right arrow / l: expand directory, or focus preview if on file and preview visible
         KeyCode::Right | KeyCode::Char('l') => {
             if let Some(key) = app.tree.selected_key().cloned()
-                && let Some(node) = app.tree.nodes.get(&key) {
-                    if node.is_dir {
-                        // Directory: expand if collapsed
-                        if !app.tree.is_expanded(&key) {
-                            app.tree.toggle_expanded(&key);
+                && let Some(node) = app.tree.nodes.get(&key)
+            {
+                if node.is_dir {
+                    // Directory: expand if collapsed
+                    if !app.tree.is_expanded(&key) {
+                        app.tree.toggle_expanded(&key);
 
-                            if app.tree.needs_children(&key) {
-                                app.tree.set_loading(&key, true);
-                                return KeyResult::LoadChildren(key);
-                            }
+                        if app.tree.needs_children(&key) {
+                            app.tree.set_loading(&key, true);
+                            return KeyResult::LoadChildren(key);
                         }
-                    } else {
-                        // File: if preview is visible, focus it
-                        if app.preview_visible {
-                            app.focus_preview();
-                        }
-                        // Otherwise do nothing (Enter opens preview)
                     }
+                } else {
+                    // File: if preview is visible, focus it
+                    if app.preview_visible {
+                        app.focus_preview();
+                    }
+                    // Otherwise do nothing (Enter opens preview)
                 }
+            }
             KeyResult::Handled
         }
 
@@ -520,25 +522,26 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
         // Manual load more items (for truncated listings)
         KeyCode::Char('L') => {
             if let Some(key) = app.tree.selected_key()
-                && let Some(node) = app.tree.nodes.get(key) {
-                    // Check if the current selection's parent has more children to load
-                    let parent_key = if node.parent_key.is_empty() {
-                        // At root level - can't load more (yet)
-                        return KeyResult::Handled;
-                    } else {
-                        node.parent_key.clone()
-                    };
+                && let Some(node) = app.tree.nodes.get(key)
+            {
+                // Check if the current selection's parent has more children to load
+                let parent_key = if node.parent_key.is_empty() {
+                    // At root level - can't load more (yet)
+                    return KeyResult::Handled;
+                } else {
+                    node.parent_key.clone()
+                };
 
-                    // Check if parent has more children and not already loading
-                    if let Some(parent_node) = app.tree.nodes.get(&parent_key)
-                        && parent_node.has_more_children 
-                        && parent_node.continuation_token.is_some()
-                        && !app.tree.is_loading(&parent_key)
-                    {
-                        app.tree.set_loading(&parent_key, true);
-                        return KeyResult::LoadMore(parent_key);
-                    }
+                // Check if parent has more children and not already loading
+                if let Some(parent_node) = app.tree.nodes.get(&parent_key)
+                    && parent_node.has_more_children
+                    && parent_node.continuation_token.is_some()
+                    && !app.tree.is_loading(&parent_key)
+                {
+                    app.tree.set_loading(&parent_key, true);
+                    return KeyResult::LoadMore(parent_key);
                 }
+            }
             KeyResult::Handled
         }
 
