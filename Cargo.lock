@@ -936,6 +936,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-channel"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-utils"
 version = "0.8.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2742,23 +2751,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a50f4cf475b65d88e057964e0e9bb1f0aa9bbb2036dc65c64596b42932536984"
 
 [[package]]
-name = "s3sh"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "aws-config",
- "aws-sdk-s3",
- "bytes",
- "chrono",
- "color-eyre",
- "crossterm",
- "once_cell",
- "ratatui",
- "tokio",
- "zip",
-]
-
-[[package]]
 name = "schannel"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3007,15 +2999,18 @@ dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-s3",
+ "bytes",
  "chrono",
  "clap",
  "color-eyre",
  "crossterm",
+ "once_cell",
  "ratatui",
  "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "zip",
 ]
 
 [[package]]
