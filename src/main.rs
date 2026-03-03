@@ -3,6 +3,7 @@
 //! This is not a shell. It's a view-first exploration tool where safety
 //! is a feature, not a limitation.
 
+mod actions;
 mod app;
 mod event;
 mod mock_provider;
@@ -416,6 +417,17 @@ async fn run_app_loop<P: Provider + Clone>(
                                 );
                             }
                         }
+                        KeyResult::ListZipArchive(archive_key) => {
+                            spawn_zip_list_task(provider.clone(), archive_key, tx.clone());
+                        }
+                        KeyResult::ExtractZipFile(archive_key, internal_path) => {
+                            spawn_zip_extract_task(
+                                provider.clone(),
+                                archive_key,
+                                internal_path,
+                                tx.clone(),
+                            );
+                        }
                         _ => {}
                     }
                 }
@@ -462,6 +474,22 @@ async fn run_app_loop<P: Provider + Clone>(
                 }
                 AppEvent::PagerExited => {
                     // TUI already restored, nothing to do
+                }
+                AppEvent::ZipListLoaded {
+                    archive_key,
+                    children,
+                } => {
+                    app.tree.set_loading(&archive_key, false);
+                    app.tree.set_children(&archive_key, children, false, None);
+                    app.set_status(StatusMessage::info("ZIP archive loaded"));
+                }
+                AppEvent::ZipExtractLoaded { key, content } => {
+                    // Update the preview with extracted content
+                    if let Some(ref mut preview) = app.file_preview
+                        && preview.key == key
+                    {
+                        preview.update_content(content, PreviewMode::Head);
+                    }
                 }
             }
         }
@@ -759,5 +787,106 @@ fn spawn_download_task<P: Provider + Clone>(
 
         // Success - report via status message (we don't have a dedicated event for this)
         // The caller should show a status message
+    });
+}
+
+/// Spawn a task to list ZIP archive contents
+fn spawn_zip_list_task<P: Provider + Clone>(
+    provider: P,
+    archive_key: String,
+    tx: mpsc::Sender<AppEvent>,
+) {
+    tokio::spawn(async move {
+        use crate::actions::zip::ZipArchiveAction;
+        use std::sync::Arc;
+
+        // Create the ZIP action with the provider
+        let action = ZipArchiveAction::new(Arc::new(provider));
+
+        // Get archive metadata first
+        let metadata = match action.provider().head(&archive_key).await {
+            Ok(info) => info,
+            Err(e) => {
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        archive_key,
+                        format!("Failed to read ZIP metadata: {}", e),
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        let size = match metadata.size {
+            Some(s) => s,
+            None => {
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        archive_key,
+                        "ZIP file has no size".to_string(),
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        // List ZIP contents using the action's method
+        match action.list_zip_contents(&archive_key, size).await {
+            Ok(children) => {
+                let _ = tx
+                    .send(AppEvent::ZipListLoaded {
+                        archive_key,
+                        children,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        archive_key,
+                        format!("Failed to list ZIP contents: {}", e),
+                    ))
+                    .await;
+            }
+        }
+    });
+}
+
+/// Spawn a task to extract a file from a ZIP archive
+fn spawn_zip_extract_task<P: Provider + Clone>(
+    provider: P,
+    archive_key: String,
+    internal_path: String,
+    tx: mpsc::Sender<AppEvent>,
+) {
+    tokio::spawn(async move {
+        use crate::actions::zip::ZipExtractAction;
+        use std::sync::Arc;
+
+        // Create the ZIP extract action with the provider
+        let action = ZipExtractAction::new(Arc::new(provider));
+
+        // Reconstruct the full key for the preview
+        let full_key = format!("{}#{}", archive_key, internal_path);
+
+        // Extract the file
+        match action.extract_file(&archive_key, &internal_path).await {
+            Ok(content) => {
+                let _ = tx
+                    .send(AppEvent::ZipExtractLoaded {
+                        key: full_key,
+                        content,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let _ = tx
+                    .send(AppEvent::LoadError(
+                        full_key,
+                        format!("Failed to extract file: {}", e),
+                    ))
+                    .await;
+            }
+        }
     });
 }

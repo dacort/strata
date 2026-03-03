@@ -44,6 +44,13 @@ pub enum AppEvent {
     },
     /// Pager process exited
     PagerExited,
+    /// ZIP archive contents loaded
+    ZipListLoaded {
+        archive_key: String,
+        children: Vec<ObjectInfo>,
+    },
+    /// ZIP file extraction completed
+    ZipExtractLoaded { key: String, content: Vec<u8> },
 }
 
 /// Result of handling a key event
@@ -72,6 +79,10 @@ pub enum KeyResult {
     SaveToLocal(String, String),
     /// Load more items for a directory (parent_key)
     LoadMore(String),
+    /// List contents of a ZIP archive (archive_key)
+    ListZipArchive(String),
+    /// Extract a file from ZIP archive (archive_key, internal_path)
+    ExtractZipFile(String, String),
 }
 
 /// Spawn a task to read keyboard events
@@ -446,8 +457,20 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
                 let node_info = app.tree.nodes.get(&key).map(|n| (n.is_dir, n.info.clone()));
 
                 if let Some((is_dir, info)) = node_info {
-                    if is_dir {
-                        // Toggle expansion
+                    // Check for ZIP files FIRST (before is_dir check)
+                    // ZIP files have is_dir=true so they appear expandable, but need special handling
+                    if info.name.to_lowercase().ends_with(".zip") && !key.contains('#') {
+                        // ZIP archive - treat like a directory that can expand
+                        let was_expanded = app.tree.is_expanded(&key);
+                        app.tree.toggle_expanded(&key);
+
+                        // If now expanded and children not loaded, trigger ZIP listing
+                        if !was_expanded && app.tree.needs_children(&key) {
+                            app.tree.set_loading(&key, true);
+                            return KeyResult::ListZipArchive(key);
+                        }
+                    } else if is_dir {
+                        // Regular directory - toggle expansion
                         let was_expanded = app.tree.is_expanded(&key);
                         app.tree.toggle_expanded(&key);
 
@@ -456,8 +479,21 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
                             app.tree.set_loading(&key, true);
                             return KeyResult::LoadChildren(key);
                         }
+                    } else if key.contains('#') {
+                        // File inside ZIP archive - extract and preview
+                        app.open_file_preview(&info);
+
+                        // Parse archive path
+                        let parts: Vec<&str> = key.split('#').collect();
+                        if parts.len() == 2 {
+                            return KeyResult::ExtractZipFile(
+                                parts[0].to_string(),
+                                parts[1].to_string(),
+                            );
+                        }
+                        return KeyResult::Handled;
                     } else {
-                        // File selected - open preview modal
+                        // Regular file selected - open preview modal
                         let size = info.size.unwrap_or(PREVIEW_BYTES);
                         let fetch_bytes = PREVIEW_BYTES.min(size);
                         app.open_file_preview(&info);
@@ -495,7 +531,19 @@ fn handle_tree_key(app: &mut App, key: KeyEvent) -> KeyResult {
             if let Some(key) = app.tree.selected_key().cloned()
                 && let Some(node) = app.tree.nodes.get(&key)
             {
-                if node.is_dir {
+                // Check for ZIP files FIRST (before is_dir check)
+                // ZIP files have is_dir=true so they appear expandable, but need special handling
+                if node.info.name.to_lowercase().ends_with(".zip") && !key.contains('#') {
+                    // ZIP archive: expand if collapsed
+                    if !app.tree.is_expanded(&key) {
+                        app.tree.toggle_expanded(&key);
+
+                        if app.tree.needs_children(&key) {
+                            app.tree.set_loading(&key, true);
+                            return KeyResult::ListZipArchive(key);
+                        }
+                    }
+                } else if node.is_dir {
                     // Directory: expand if collapsed
                     if !app.tree.is_expanded(&key) {
                         app.tree.toggle_expanded(&key);
